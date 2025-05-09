@@ -32,18 +32,16 @@ export default function PersonaPage() {
   useEffect(() => {
     if (userId && personaIdParams) {
       const fetchedPersona = getPersonaById(userId, personaIdParams);
-      setPersona(fetchedPersona || null); // Set to null if not found
+      setPersona(fetchedPersona || null); 
       setPageLoading(false);
     } else if (!loadingAuth && !user) {
-      // User is not logged in, redirect is handled above
       setPageLoading(false);
     }
-    // If loadingAuth or userId/personaIdParams are not available, pageLoading remains true
   }, [userId, personaIdParams, loadingAuth, user]);
 
 
   const handlePersonaUpdate = (updatedPersona: Persona) => {
-    setPersona(updatedPersona); // This assumes savePersona in PersonaProfileDisplay handles storage
+    setPersona(updatedPersona); 
   };
 
   if (loadingAuth || pageLoading) {
@@ -56,7 +54,6 @@ export default function PersonaPage() {
   }
 
   if (!user) {
-     // Should be caught by redirect, but as a fallback
     return (
       <div className="flex justify-center items-center h-screen">
         <p>Redirecting to login...</p>
@@ -76,7 +73,7 @@ export default function PersonaPage() {
     );
   }
   
-  if (persona === undefined) { // Still loading persona data specifically
+  if (persona === undefined) { 
      return (
       <div className="h-[calc(100vh-var(--header-height,0px)-2rem)] grid md:grid-cols-[350px_1fr] lg:grid-cols-[400px_1fr] gap-1 p-1">
         <Skeleton className="h-full w-full rounded-lg" />
@@ -84,6 +81,10 @@ export default function PersonaPage() {
       </div>
     );
   }
+
+  // Chat-derived personas might not have all features available for direct chat if they are only for practice mode.
+  // For now, ChatInterface will work, but specific UI adjustments might be needed if features differ.
+  const isChatInterfaceDisabled = persona.originType === 'chat-derived' && !persona.personaDescription;
 
 
   return (
@@ -97,7 +98,15 @@ export default function PersonaPage() {
         <PersonaProfileDisplay persona={persona} onPersonaUpdate={handlePersonaUpdate} />
       </div>
       <div className="h-full">
-        <ChatInterface persona={persona} />
+        {isChatInterfaceDisabled ? (
+            <div className="flex flex-col items-center justify-center h-full text-center p-4 bg-muted/50 rounded-lg">
+                <Bot className="w-16 h-16 text-muted-foreground mb-4" />
+                <h2 className="text-xl font-semibold mb-2">Practice Persona Not Ready</h2>
+                <p className="text-muted-foreground">This AI persona is derived from a chat and needs to be generated or updated from the original chat screen.</p>
+            </div>
+        ) : (
+            <ChatInterface persona={persona} />
+        )}
       </div>
     </div>
   );

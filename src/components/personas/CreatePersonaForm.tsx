@@ -65,7 +65,8 @@ export default function CreatePersonaForm() {
       const newPersona: Persona = {
         id: crypto.randomUUID(),
         name: data.name,
-        chatHistory: data.chatHistory,
+        originType: 'user-created', // Specify origin type
+        chatHistory: data.chatHistory, // Seed history for user-created
         mbti: data.mbti,
         age: data.age,
         gender: data.gender,
@@ -125,7 +126,7 @@ export default function CreatePersonaForm() {
               name="chatHistory"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Chat History</FormLabel>
+                  <FormLabel>Chat History (Seed)</FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Paste chat history here... (min 50 characters)"
@@ -134,7 +135,7 @@ export default function CreatePersonaForm() {
                     />
                   </FormControl>
                   <FormDescription>
-                    The more representative the chat history, the better the persona simulation.
+                    This chat history will be used as the initial basis for the persona's AI generation.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

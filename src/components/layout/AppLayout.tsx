@@ -3,7 +3,7 @@
 
 import type { PropsWithChildren } from 'react';
 import Link from 'next/link';
-import { Home, PlusSquare, UserCircle, LogIn, LogOut, Settings, Loader2 } from 'lucide-react';
+import { Home, PlusSquare, UserCircle, LogIn, LogOut, Settings, Loader2, MessageSquare } from 'lucide-react';
 import {
   Sidebar,
   SidebarHeader,
@@ -36,6 +36,7 @@ export default function AppLayout({ children }: PropsWithChildren) {
   const menuItems = [
     { href: '/', label: 'Dashboard', icon: Home, protected: true },
     { href: '/personas/new', label: 'New Persona', icon: PlusSquare, protected: true },
+    { href: '/messages', label: 'Messages', icon: MessageSquare, protected: true },
     // Add more non-protected items here if needed
   ];
 
@@ -67,12 +68,13 @@ export default function AppLayout({ children }: PropsWithChildren) {
           <SidebarMenu>
             {menuItems.map((item) => {
               if (item.protected && !user) return null;
+              const isActive = item.href === '/' ? pathname === item.href : pathname.startsWith(item.href);
               return (
                 <SidebarMenuItem key={item.href}>
                   <Link href={item.href} passHref legacyBehavior>
                     <SidebarMenuButton
                       asChild
-                      isActive={pathname === item.href}
+                      isActive={isActive}
                       tooltip={{ children: item.label, side: 'right', align: 'center' }}
                     >
                       <a>

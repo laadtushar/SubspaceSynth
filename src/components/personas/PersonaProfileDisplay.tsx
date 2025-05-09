@@ -3,9 +3,9 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { Bot, BarChart2, Loader2, Sparkles, BrainCircuit, Zap } from 'lucide-react'; // Removed MessageSquare as it wasn't used
+import { Bot, BarChart2, Loader2, Sparkles, BrainCircuit, Zap } from 'lucide-react';
 import type { Persona } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardFooter as it wasn't used
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, BarChart as RechartsBarChart } from 'recharts'; // Renamed BarChart to RechartsBarChart
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, BarChart as RechartsBarChart } from 'recharts';
 
 
 interface PersonaProfileDisplayProps {
@@ -43,16 +43,35 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isDevelopingPersonality, setIsDevelopingPersonality] = useState(false);
   const [developmentPrompts, setDevelopmentPrompts] = useState('');
-  const [isDevelopDialogActive, setIsDevelopDialogActive] = useState(false); // To control dialog open state
+  const [isDevelopDialogActive, setIsDevelopDialogActive] = useState(false); 
   const { toast } = useToast();
   const { userId } = useAuth();
 
+  const isChatDerived = persona.originType === 'chat-derived';
+
   const handleAnalyzeInsights = async () => {
-    if (!userId) return;
+    if (!userId || !persona.chatHistory) { // chatHistory is for user-created, sourceChatMessages for derived
+        toast({
+            title: 'Cannot Analyze',
+            description: 'Source chat data is missing for this persona type.',
+            variant: 'destructive'
+        });
+        return;
+    }
     setIsLoadingInsights(true);
     try {
+      const sourceHistory = persona.originType === 'user-created' 
+        ? persona.chatHistory 
+        : persona.sourceChatMessages?.map(m => `${m.senderUserId === persona.derivedRepresentingUserId ? persona.name.replace("'s Chat Persona", "") : "Other"}: ${m.text}`).join('\n');
+      
+      if (!sourceHistory) {
+        toast({ title: 'Error', description: 'No source messages to analyze.', variant: 'destructive' });
+        setIsLoadingInsights(false);
+        return;
+      }
+
       const insightsResponse = await analyzePersonaInsights({
-        chatHistory: persona.chatHistory,
+        chatHistory: sourceHistory,
         mbtiType: persona.mbti,
         age: persona.age,
         gender: persona.gender,
@@ -79,10 +98,10 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   };
 
   const handleDevelopPersonality = async () => {
-    if (!userId || !developmentPrompts.trim()) {
+    if (!userId || !developmentPrompts.trim() || isChatDerived) { // Disable for chat-derived
         toast({
             title: 'Error',
-            description: !userId ? 'You must be logged in.' : 'Development prompts cannot be empty.',
+            description: !userId ? 'You must be logged in.' : isChatDerived ? 'Cannot develop personality for chat-derived personas.' : 'Development prompts cannot be empty.',
             variant: 'destructive',
         });
         return;
@@ -107,7 +126,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
         description: `${persona.name}'s personality has been successfully updated.`,
       });
       setDevelopmentPrompts(''); 
-      setIsDevelopDialogActive(false); // Close dialog
+      setIsDevelopDialogActive(false); 
 
     } catch (error) {
       console.error('Failed to develop personality:', error);
@@ -156,6 +175,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
           />
           <div>
             <CardTitle className="text-xl font-bold">{persona.name}</CardTitle>
+            {isChatDerived && <Badge variant="outline" className="mt-1">Chat-Derived Persona</Badge>}
             <div className="flex flex-wrap gap-1 mt-1">
               {persona.mbti && <Badge variant="outline">MBTI: {persona.mbti}</Badge>}
               {persona.age && <Badge variant="outline">Age: {persona.age}</Badge>}
@@ -171,60 +191,62 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
               <h3 className="text-sm font-semibold text-muted-foreground flex items-center">
                 <Bot className="h-4 w-4 mr-2 text-primary" /> AI Persona Description
               </h3>
-              <Dialog open={isDevelopDialogActive} onOpenChange={setIsDevelopDialogActive}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={!userId}>
-                    <BrainCircuit className="h-4 w-4 mr-1" /> Develop
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[525px]">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <BrainCircuit className="h-6 w-6 text-primary" /> Develop {persona.name}'s Personality
-                    </DialogTitle>
-                    <DialogDescription>
-                      Guide the AI to refine or evolve this persona. Provide prompts on how you want their personality, traits, or communication style to change.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div>
-                      <Label htmlFor="current-description" className="text-sm font-medium text-muted-foreground">
-                        Current Persona Description
-                      </Label>
-                      <ScrollArea className="h-32 mt-1">
-                        <p className="text-xs bg-muted p-2 rounded-md leading-relaxed">
-                          {persona.personaDescription || 'No description generated yet.'}
-                        </p>
-                      </ScrollArea>
-                    </div>
-                    <div>
-                      <Label htmlFor="development-prompts">
-                        Development Prompts
-                      </Label>
-                      <Textarea
-                        id="development-prompts"
-                        placeholder="e.g., Make them more sarcastic. Add a backstory about their childhood love for space. Give them a specific fear..."
-                        value={developmentPrompts}
-                        onChange={(e) => setDevelopmentPrompts(e.target.value)}
-                        className="min-h-[100px] mt-1"
-                      />
-                    </div>
-                  </div>
-                  <ShadDialogFooter>
-                    <DialogClose asChild>
-                       <Button type="button" variant="outline" onClick={() => setIsDevelopDialogActive(false)}>Cancel</Button>
-                    </DialogClose>
-                    <Button 
-                      type="button" 
-                      onClick={handleDevelopPersonality}
-                      disabled={isDevelopingPersonality || !developmentPrompts.trim()}
-                    >
-                      {isDevelopingPersonality ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4"/>}
-                      Update Personality
+              {!isChatDerived && (
+                <Dialog open={isDevelopDialogActive} onOpenChange={setIsDevelopDialogActive}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" disabled={!userId || isChatDerived}>
+                      <BrainCircuit className="h-4 w-4 mr-1" /> Develop
                     </Button>
-                  </ShadDialogFooter>
-                </DialogContent>
-              </Dialog>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[525px]">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <BrainCircuit className="h-6 w-6 text-primary" /> Develop {persona.name}'s Personality
+                      </DialogTitle>
+                      <DialogDescription>
+                        Guide the AI to refine or evolve this persona. Provide prompts on how you want their personality, traits, or communication style to change.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div>
+                        <Label htmlFor="current-description" className="text-sm font-medium text-muted-foreground">
+                          Current Persona Description
+                        </Label>
+                        <ScrollArea className="h-32 mt-1">
+                          <p className="text-xs bg-muted p-2 rounded-md leading-relaxed">
+                            {persona.personaDescription || 'No description generated yet.'}
+                          </p>
+                        </ScrollArea>
+                      </div>
+                      <div>
+                        <Label htmlFor="development-prompts">
+                          Development Prompts
+                        </Label>
+                        <Textarea
+                          id="development-prompts"
+                          placeholder="e.g., Make them more sarcastic. Add a backstory about their childhood love for space. Give them a specific fear..."
+                          value={developmentPrompts}
+                          onChange={(e) => setDevelopmentPrompts(e.target.value)}
+                          className="min-h-[100px] mt-1"
+                        />
+                      </div>
+                    </div>
+                    <ShadDialogFooter>
+                      <DialogClose asChild>
+                         <Button type="button" variant="outline" onClick={() => setIsDevelopDialogActive(false)}>Cancel</Button>
+                      </DialogClose>
+                      <Button 
+                        type="button" 
+                        onClick={handleDevelopPersonality}
+                        disabled={isDevelopingPersonality || !developmentPrompts.trim()}
+                      >
+                        {isDevelopingPersonality ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4"/>}
+                        Update Personality
+                      </Button>
+                    </ShadDialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
             <p className="text-sm bg-muted p-3 rounded-md leading-relaxed">
               {persona.personaDescription || 'No description generated yet.'}
@@ -232,123 +254,133 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
           </div>
 
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-semibold text-muted-foreground flex items-center">
-                <Zap className="h-4 w-4 mr-2 text-primary" /> Personality Insights & Stats
-              </h3>
-              <Button onClick={handleAnalyzeInsights} disabled={isLoadingInsights || !userId} size="sm" variant="outline">
-                {isLoadingInsights ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
+             {/* Personality Insights Section: Enable only for 'user-created' personas or if explicitly allowed for 'chat-derived' */}
+            {(persona.originType === 'user-created' || (persona.originType === 'chat-derived' && persona.sourceChatMessages && persona.sourceChatMessages.length > 0)) && (
+              <>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-sm font-semibold text-muted-foreground flex items-center">
+                    <Zap className="h-4 w-4 mr-2 text-primary" /> Personality Insights & Stats
+                  </h3>
+                  <Button 
+                    onClick={handleAnalyzeInsights} 
+                    disabled={isLoadingInsights || !userId || (persona.originType === 'user-created' && !persona.chatHistory) || (persona.originType === 'chat-derived' && (!persona.sourceChatMessages || persona.sourceChatMessages.length === 0))} 
+                    size="sm" 
+                    variant="outline"
+                  >
+                    {isLoadingInsights ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    {displayableInsights ? 'Refresh Insights' : 'Generate Insights'}
+                  </Button>
+                </div>
+
+                {!displayableInsights && typeof currentInsights === 'string' && (
+                    <p className="text-sm bg-amber-100 dark:bg-amber-900/30 p-3 rounded-md text-amber-700 dark:text-amber-400">
+                      Previous insights are in an old format. Click "Refresh Insights" to generate new detailed statistics and visualizations.
+                    </p>
                 )}
-                {displayableInsights ? 'Refresh Insights' : 'Generate Insights'}
-              </Button>
-            </div>
 
-            {!displayableInsights && typeof currentInsights === 'string' && (
-                <p className="text-sm bg-amber-100 dark:bg-amber-900/30 p-3 rounded-md text-amber-700 dark:text-amber-400">
-                  Previous insights are in an old format. Click "Refresh Insights" to generate new detailed statistics and visualizations.
-                </p>
-            )}
-
-            {displayableInsights ? (
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader><CardTitle className="text-base">Summary</CardTitle></CardHeader>
-                  <CardContent><p className="text-sm">{displayableInsights.summary}</p></CardContent>
-                </Card>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  {sentimentData.length > 0 && (
+                {displayableInsights ? (
+                  <div className="space-y-4">
                     <Card>
-                      <CardHeader><CardTitle className="text-base">Sentiment Analysis</CardTitle></CardHeader>
-                      <CardContent className="h-[200px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <RechartsTooltip {...chartTooltipProps} />
-                            <Legend iconSize={10} wrapperStyle={{fontSize: "12px"}}/>
-                            <Pie data={sentimentData} cx="50%" cy="50%" labelLine={false} outerRadius={60} dataKey="value" nameKey="name"
-                              label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                                const RADIAN = Math.PI / 180;
-                                const radius = innerRadius + (outerRadius - innerRadius) * 0.6;
-                                const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                                const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                                if (percent < 0.05) return null;
-                                return (
-                                  <text x={x} y={y} fill="hsl(var(--primary-foreground))" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="10px">
-                                    {`${(percent * 100).toFixed(0)}%`}
-                                  </text>
-                                );
-                              }}
-                            >
-                              {sentimentData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} stroke={entry.fill} /> ))}
-                            </Pie>
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </CardContent>
+                      <CardHeader><CardTitle className="text-base">Summary</CardTitle></CardHeader>
+                      <CardContent><p className="text-sm">{displayableInsights.summary}</p></CardContent>
                     </Card>
-                  )}
 
-                  {keywordData.length > 0 && (
-                     <Card>
-                      <CardHeader><CardTitle className="text-base">Top Keywords</CardTitle></CardHeader>
-                      <CardContent className="h-[200px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                           <RechartsBarChart data={keywordData} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                            <XAxis type="number" stroke="hsl(var(--foreground))" fontSize={10} />
-                            <YAxis dataKey="name" type="category" stroke="hsl(var(--foreground))" width={60} fontSize={10} interval={0} />
-                            <RechartsTooltip {...chartTooltipProps} />
-                            <Bar dataKey="Frequency" fill="hsl(var(--chart-4))" barSize={15} radius={[0, 4, 4, 0]} />
-                          </RechartsBarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-                
-                <Card>
-                  <CardHeader><CardTitle className="text-base">Communication Style</CardTitle></CardHeader>
-                  <CardContent className="space-y-1 text-sm">
-                    <p>Avg. Message Length: <strong>{displayableInsights.communicationStyle.averageMessageLength.toFixed(1)} words</strong></p>
-                    <p>Question Rate: <strong>{displayableInsights.communicationStyle.questionRate.toFixed(1)}%</strong></p>
-                    <p>Emoji Usage Score: <strong>{displayableInsights.communicationStyle.useOfEmojis.toFixed(0)}/100</strong></p>
-                  </CardContent>
-                </Card>
-
-                {displayableInsights.mbtiInsights && persona.mbti && (
-                  <Card>
-                    <CardHeader><CardTitle className="text-base">MBTI Insights ({persona.mbti})</CardTitle></CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <p><strong>Observed Traits:</strong></p>
-                      <div className="flex flex-wrap gap-2">
-                        {displayableInsights.mbtiInsights.observedTraits.map(trait => <Badge key={trait} variant="secondary">{trait}</Badge>)}
-                      </div>
-                      {displayableInsights.mbtiInsights.compatibilityNotes && (
-                        <div>
-                          <p className="mt-2"><strong>Communication Notes:</strong></p>
-                          <p>{displayableInsights.mbtiInsights.compatibilityNotes}</p>
-                        </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {sentimentData.length > 0 && (
+                        <Card>
+                          <CardHeader><CardTitle className="text-base">Sentiment Analysis</CardTitle></CardHeader>
+                          <CardContent className="h-[200px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <RechartsTooltip {...chartTooltipProps} />
+                                <Legend iconSize={10} wrapperStyle={{fontSize: "12px"}}/>
+                                <Pie data={sentimentData} cx="50%" cy="50%" labelLine={false} outerRadius={60} dataKey="value" nameKey="name"
+                                  label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                                    const RADIAN = Math.PI / 180;
+                                    const radius = innerRadius + (outerRadius - innerRadius) * 0.6;
+                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                                    if (percent < 0.05) return null;
+                                    return (
+                                      <text x={x} y={y} fill="hsl(var(--primary-foreground))" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="10px">
+                                        {`${(percent * 100).toFixed(0)}%`}
+                                      </text>
+                                    );
+                                  }}
+                                >
+                                  {sentimentData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} stroke={entry.fill} /> ))}
+                                </Pie>
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
                       )}
-                    </CardContent>
-                  </Card>
-                )}
 
-              </div>
-            ) : (
-              !isLoadingInsights && (
-                <div className="text-center p-4 border border-dashed rounded-md">
-                  <p className="text-sm text-muted-foreground">No detailed insights generated yet or insights are in an old format.</p>
-                  <p className="text-xs text-muted-foreground mb-2">Click "Generate Insights" to analyze and visualize persona statistics.</p>
-                </div>
-              )
-            )}
-             {isLoadingInsights && (
-              <div className="flex justify-center items-center p-6">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="ml-2 text-muted-foreground">Generating insights...</p>
-              </div>
+                      {keywordData.length > 0 && (
+                         <Card>
+                          <CardHeader><CardTitle className="text-base">Top Keywords</CardTitle></CardHeader>
+                          <CardContent className="h-[200px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                               <RechartsBarChart data={keywordData} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                                <XAxis type="number" stroke="hsl(var(--foreground))" fontSize={10} />
+                                <YAxis dataKey="name" type="category" stroke="hsl(var(--foreground))" width={60} fontSize={10} interval={0} />
+                                <RechartsTooltip {...chartTooltipProps} />
+                                <Bar dataKey="Frequency" fill="hsl(var(--chart-4))" barSize={15} radius={[0, 4, 4, 0]} />
+                              </RechartsBarChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </div>
+                    
+                    <Card>
+                      <CardHeader><CardTitle className="text-base">Communication Style</CardTitle></CardHeader>
+                      <CardContent className="space-y-1 text-sm">
+                        <p>Avg. Message Length: <strong>{displayableInsights.communicationStyle.averageMessageLength.toFixed(1)} words</strong></p>
+                        <p>Question Rate: <strong>{displayableInsights.communicationStyle.questionRate.toFixed(1)}%</strong></p>
+                        <p>Emoji Usage Score: <strong>{displayableInsights.communicationStyle.useOfEmojis.toFixed(0)}/100</strong></p>
+                      </CardContent>
+                    </Card>
+
+                    {displayableInsights.mbtiInsights && persona.mbti && (
+                      <Card>
+                        <CardHeader><CardTitle className="text-base">MBTI Insights ({persona.mbti})</CardTitle></CardHeader>
+                        <CardContent className="space-y-2 text-sm">
+                          <p><strong>Observed Traits:</strong></p>
+                          <div className="flex flex-wrap gap-2">
+                            {displayableInsights.mbtiInsights.observedTraits.map(trait => <Badge key={trait} variant="secondary">{trait}</Badge>)}
+                          </div>
+                          {displayableInsights.mbtiInsights.compatibilityNotes && (
+                            <div>
+                              <p className="mt-2"><strong>Communication Notes:</strong></p>
+                              <p>{displayableInsights.mbtiInsights.compatibilityNotes}</p>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  </div>
+                ) : (
+                  !isLoadingInsights && (
+                    <div className="text-center p-4 border border-dashed rounded-md">
+                      <p className="text-sm text-muted-foreground">No detailed insights generated yet or insights are in an old format.</p>
+                      <p className="text-xs text-muted-foreground mb-2">Click "Generate Insights" to analyze and visualize persona statistics.</p>
+                    </div>
+                  )
+                )}
+                 {isLoadingInsights && (
+                  <div className="flex justify-center items-center p-6">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="ml-2 text-muted-foreground">Generating insights...</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </CardContent>
