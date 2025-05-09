@@ -47,7 +47,7 @@ const MbtiInsightsSchema = z.object({
 }).describe('Insights related to the MBTI type, if provided.');
 
 
-export const AnalyzePersonaInsightsOutputSchema = z.object({
+const AnalyzePersonaInsightsOutputSchema = z.object({
   summary: z
     .string()
     .describe('A brief textual summary of the persona\'s overall personality and communication style based on the analysis.'),
