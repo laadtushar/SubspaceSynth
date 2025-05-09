@@ -1,3 +1,5 @@
+import type { AnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
+
 export interface Persona {
   id: string;
   name: string;
@@ -6,7 +8,7 @@ export interface Persona {
   age?: number;
   gender?: string;
   personaDescription?: string;
-  personalityInsights?: string;
+  personalityInsights?: AnalyzePersonaInsightsOutput; // Updated from string
   createdAt: string; // ISO date string
   avatarUrl?: string; // Placeholder for avatar image
 }

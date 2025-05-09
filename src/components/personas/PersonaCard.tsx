@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { Persona } from '@/lib/types';
+import type { AnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,11 +23,22 @@ interface PersonaCardProps {
   onDelete: (id: string) => void;
 }
 
+// Helper to check if insights are in the new structured format
+const isStructuredInsights = (insights: any): insights is AnalyzePersonaInsightsOutput => {
+  return typeof insights === 'object' && insights !== null && 'summary' in insights;
+};
+
 export default function PersonaCard({ persona, onDelete }: PersonaCardProps) {
   const handleDelete = () => {
     onDelete(persona.id);
   };
   
+  const insightsSummary = isStructuredInsights(persona.personalityInsights) 
+    ? persona.personalityInsights.summary 
+    : typeof persona.personalityInsights === 'string' 
+      ? persona.personalityInsights // For backward compatibility with old string format
+      : null;
+
   return (
     <Card className="flex flex-col overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300">
       <CardHeader className="flex flex-row items-start gap-4 p-4">
@@ -46,15 +58,15 @@ export default function PersonaCard({ persona, onDelete }: PersonaCardProps) {
         </div>
       </CardHeader>
       <CardContent className="p-4 flex-grow">
-        <div className="space-y-2">
+        <div className="space-y-2 mb-2">
           {persona.mbti && <Badge variant="secondary">MBTI: {persona.mbti}</Badge>}
           {persona.age && <Badge variant="secondary">Age: {persona.age}</Badge>}
           {persona.gender && <Badge variant="secondary">Gender: {persona.gender}</Badge>}
         </div>
-        {persona.personalityInsights && (
-           <p className="mt-3 text-xs text-muted-foreground line-clamp-3">
+        {insightsSummary && (
+           <p className="text-xs text-muted-foreground line-clamp-3">
              <BarChart2 className="inline-block mr-1 h-3 w-3" />
-             {persona.personalityInsights}
+             {insightsSummary}
            </p>
         )}
       </CardContent>
@@ -64,9 +76,6 @@ export default function PersonaCard({ persona, onDelete }: PersonaCardProps) {
             <MessageSquare className="mr-2 h-4 w-4" /> Chat
           </Button>
         </Link>
-        {/* <Button variant="outline" size="sm" disabled> Edit functionality coming soon
-          <Edit3 className="mr-2 h-4 w-4" /> Edit
-        </Button> */}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="destructive" size="sm">
