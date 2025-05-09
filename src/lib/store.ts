@@ -1,7 +1,8 @@
+
 import type { Persona, ChatMessage } from './types';
 
-const PERSONAS_KEY = 'personaSim_personas';
-const CHATS_KEY_PREFIX = 'personaSim_chats_';
+const PERSONAS_KEY_BASE = 'personaSim_personas';
+const CHATS_KEY_PREFIX_BASE = 'personaSim_chats_';
 
 // Helper to safely access localStorage
 const getLocalStorageItem = (key: string): string | null => {
@@ -17,52 +18,72 @@ const setLocalStorageItem = (key: string, value: string): void => {
   }
 };
 
+const removeLocalStorageItem = (key: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(key);
+  }
+}
+
+const getPersonasKey = (userId: string) => `${PERSONAS_KEY_BASE}_${userId}`;
+const getChatKey = (userId: string, personaId: string) => `${CHATS_KEY_PREFIX_BASE}${userId}_${personaId}`;
+
 // Persona Management
-export const getPersonas = (): Persona[] => {
-  const personasJson = getLocalStorageItem(PERSONAS_KEY);
+export const getPersonas = (userId: string): Persona[] => {
+  if (!userId) return [];
+  const personasKey = getPersonasKey(userId);
+  const personasJson = getLocalStorageItem(personasKey);
   return personasJson ? JSON.parse(personasJson) : [];
 };
 
-export const getPersonaById = (id: string): Persona | undefined => {
-  const personas = getPersonas();
+export const getPersonaById = (userId: string, id: string): Persona | undefined => {
+  if (!userId) return undefined;
+  const personas = getPersonas(userId);
   return personas.find(p => p.id === id);
 };
 
-export const savePersona = (persona: Persona): void => {
-  const personas = getPersonas();
+export const savePersona = (userId: string, persona: Persona): void => {
+  if (!userId) return;
+  const personasKey = getPersonasKey(userId);
+  const personas = getPersonas(userId); // Ensures we're operating on the correct user's data
   const existingIndex = personas.findIndex(p => p.id === persona.id);
   if (existingIndex > -1) {
     personas[existingIndex] = persona;
   } else {
     personas.push(persona);
   }
-  setLocalStorageItem(PERSONAS_KEY, JSON.stringify(personas));
+  setLocalStorageItem(personasKey, JSON.stringify(personas));
 };
 
-export const deletePersona = (id: string): void => {
-  let personas = getPersonas();
-  personas = personas.filter(p => p.id !== id);
-  setLocalStorageItem(PERSONAS_KEY, JSON.stringify(personas));
-  // Also delete associated chats
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(`${CHATS_KEY_PREFIX}${id}`);
-  }
+export const deletePersona = (userId: string, personaId: string): void => {
+  if (!userId) return;
+  const personasKey = getPersonasKey(userId);
+  let personas = getPersonas(userId);
+  personas = personas.filter(p => p.id !== personaId);
+  setLocalStorageItem(personasKey, JSON.stringify(personas));
+  
+  // Also delete associated chats for that user and persona
+  const chatKey = getChatKey(userId, personaId);
+  removeLocalStorageItem(chatKey);
 };
 
 // Chat Management
-export const getChatMessages = (personaId: string): ChatMessage[] => {
-  const messagesJson = getLocalStorageItem(`${CHATS_KEY_PREFIX}${personaId}`);
+export const getChatMessages = (userId: string, personaId: string): ChatMessage[] => {
+  if (!userId) return [];
+  const chatKey = getChatKey(userId, personaId);
+  const messagesJson = getLocalStorageItem(chatKey);
   return messagesJson ? JSON.parse(messagesJson) : [];
 };
 
-export const saveChatMessage = (personaId: string, message: ChatMessage): void => {
-  const messages = getChatMessages(personaId);
+export const saveChatMessage = (userId: string, personaId: string, message: ChatMessage): void => {
+  if (!userId) return;
+  const chatKey = getChatKey(userId, personaId);
+  const messages = getChatMessages(userId, personaId);
   messages.push(message);
-  setLocalStorageItem(`${CHATS_KEY_PREFIX}${personaId}`, JSON.stringify(messages));
+  setLocalStorageItem(chatKey, JSON.stringify(messages));
 };
 
-export const clearChatMessages = (personaId: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(`${CHATS_KEY_PREFIX}${personaId}`);
-  }
+export const clearChatMessages = (userId: string, personaId: string): void => {
+  if (!userId) return;
+  const chatKey = getChatKey(userId, personaId);
+  removeLocalStorageItem(chatKey);
 };

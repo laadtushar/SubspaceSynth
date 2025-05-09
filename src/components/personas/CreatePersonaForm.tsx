@@ -1,7 +1,8 @@
+
 'use client';
 
 import { useState } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
@@ -10,11 +11,12 @@ import { Bot, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+// import { Label } from '@/components/ui/label'; // No longer directly used
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 import type { Persona } from '@/lib/types';
 import { MBTI_TYPES, GENDERS } from '@/lib/types';
@@ -34,6 +36,7 @@ type PersonaFormValues = z.infer<typeof personaFormSchema>;
 export default function CreatePersonaForm() {
   const router = useRouter();
   const { toast } = useToast();
+  const { userId } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<PersonaFormValues>({
@@ -41,11 +44,20 @@ export default function CreatePersonaForm() {
     defaultValues: {
       name: '',
       chatHistory: '',
-      // mbti, age, gender will be undefined by default
     },
   });
 
   async function onSubmit(data: PersonaFormValues) {
+    if (!userId) {
+      toast({
+        title: 'Error',
+        description: 'You must be logged in to create a persona.',
+        variant: 'destructive',
+      });
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
       const aiResponse = await createPersonaFromChat({ chatHistory: data.chatHistory });
@@ -59,10 +71,10 @@ export default function CreatePersonaForm() {
         gender: data.gender,
         personaDescription: aiResponse.personaDescription,
         createdAt: new Date().toISOString(),
-        avatarUrl: `https://picsum.photos/seed/${data.name + Date.now()}/200/200` // Generate random avatar
+        avatarUrl: `https://picsum.photos/seed/${data.name + Date.now()}/200/200`
       };
 
-      savePersona(newPersona);
+      savePersona(userId, newPersona);
       toast({
         title: 'Persona Created!',
         description: `${data.name} has been successfully created and analyzed.`,
@@ -166,11 +178,9 @@ export default function CreatePersonaForm() {
                         type="number"
                         placeholder="E.g., 30"
                         {...field}
-                        value={field.value ?? ''} // Ensure controlled input, use '' for undefined
+                        value={field.value ?? ''}
                         onChange={event => {
                           const val = event.target.value;
-                          // For optional numeric fields, an empty input should typically mean 'undefined'
-                          // Pass the raw string to Zod for coercion, or undefined if empty
                           field.onChange(val === "" ? undefined : val);
                         }}
                       />
@@ -207,7 +217,7 @@ export default function CreatePersonaForm() {
             </div>
           </CardContent>
           <CardFooter className="border-t pt-6">
-            <Button type="submit" className="w-full sm:w-auto" disabled={isLoading}>
+            <Button type="submit" className="w-full sm:w-auto" disabled={isLoading || !userId}>
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

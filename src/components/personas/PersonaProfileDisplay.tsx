@@ -3,12 +3,13 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { Bot, BarChart2, Loader2, Sparkles, BrainCircuit, MessageSquare, Zap } from 'lucide-react';
+import { Bot, BarChart2, Loader2, Sparkles, BrainCircuit, Zap } from 'lucide-react'; // Removed MessageSquare as it wasn't used
 import type { Persona } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardFooter as it wasn't used
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { analyzePersonaInsights, type AnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
 import { developPersonaPersonality } from '@/ai/flows/develop-persona-flow';
 import { savePersona } from '@/lib/store';
@@ -21,19 +22,18 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogClose,
-  DialogFooter as ShadDialogFooter, // Renamed to avoid conflict if any
+  DialogFooter as ShadDialogFooter, 
 } from "@/components/ui/dialog";
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, BarChart } from 'recharts';
-import type { ChartConfig } from '@/components/ui/chart'; // Assuming ChartConfig is defined and exportable
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, BarChart as RechartsBarChart } from 'recharts'; // Renamed BarChart to RechartsBarChart
+
 
 interface PersonaProfileDisplayProps {
   persona: Persona;
   onPersonaUpdate: (updatedPersona: Persona) => void;
 }
 
-// Helper to check if insights are in the new structured format
 const isStructuredInsights = (insights: any): insights is AnalyzePersonaInsightsOutput => {
   return typeof insights === 'object' && insights !== null && 'summary' in insights && 'sentiment' in insights;
 };
@@ -43,10 +43,12 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isDevelopingPersonality, setIsDevelopingPersonality] = useState(false);
   const [developmentPrompts, setDevelopmentPrompts] = useState('');
-  const [isDevelopDialogValpromptd, setIsDevelopDialogValpromptd] = useState(false);
+  const [isDevelopDialogActive, setIsDevelopDialogActive] = useState(false); // To control dialog open state
   const { toast } = useToast();
+  const { userId } = useAuth();
 
   const handleAnalyzeInsights = async () => {
+    if (!userId) return;
     setIsLoadingInsights(true);
     try {
       const insightsResponse = await analyzePersonaInsights({
@@ -57,7 +59,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
       });
 
       const updatedPersona = { ...persona, personalityInsights: insightsResponse };
-      savePersona(updatedPersona);
+      savePersona(userId, updatedPersona);
       onPersonaUpdate(updatedPersona);
 
       toast({
@@ -77,10 +79,10 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   };
 
   const handleDevelopPersonality = async () => {
-    if (!developmentPrompts.trim()) {
+    if (!userId || !developmentPrompts.trim()) {
         toast({
             title: 'Error',
-            description: 'Development prompts cannot be empty.',
+            description: !userId ? 'You must be logged in.' : 'Development prompts cannot be empty.',
             variant: 'destructive',
         });
         return;
@@ -97,7 +99,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
       });
 
       const updatedPersona = { ...persona, personaDescription: response.newPersonaDescription };
-      savePersona(updatedPersona);
+      savePersona(userId, updatedPersona);
       onPersonaUpdate(updatedPersona);
       
       toast({
@@ -105,9 +107,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
         description: `${persona.name}'s personality has been successfully updated.`,
       });
       setDevelopmentPrompts(''); 
-      setIsDevelopDialogValpromptd(false);
-      // Manually find and click the close button if possible, or manage open state
-      document.getElementById(`develop-dialog-close-${persona.id}`)?.click();
+      setIsDevelopDialogActive(false); // Close dialog
 
     } catch (error) {
       console.error('Failed to develop personality:', error);
@@ -119,11 +119,6 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
     } finally {
       setIsDevelopingPersonality(false);
     }
-  };
-
-  const onDevelopmentPromptsChange = (value: string) => {
-    setDevelopmentPrompts(value);
-    setIsDevelopDialogValpromptd(value.trim().length > 0);
   };
 
   const currentInsights = persona.personalityInsights;
@@ -176,9 +171,9 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
               <h3 className="text-sm font-semibold text-muted-foreground flex items-center">
                 <Bot className="h-4 w-4 mr-2 text-primary" /> AI Persona Description
               </h3>
-              <Dialog>
+              <Dialog open={isDevelopDialogActive} onOpenChange={setIsDevelopDialogActive}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" disabled={!userId}>
                     <BrainCircuit className="h-4 w-4 mr-1" /> Develop
                   </Button>
                 </DialogTrigger>
@@ -210,19 +205,19 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                         id="development-prompts"
                         placeholder="e.g., Make them more sarcastic. Add a backstory about their childhood love for space. Give them a specific fear..."
                         value={developmentPrompts}
-                        onChange={(e) => onDevelopmentPromptsChange(e.target.value)}
+                        onChange={(e) => setDevelopmentPrompts(e.target.value)}
                         className="min-h-[100px] mt-1"
                       />
                     </div>
                   </div>
                   <ShadDialogFooter>
                     <DialogClose asChild>
-                       <Button type="button" variant="outline" id={`develop-dialog-close-${persona.id}`}>Cancel</Button>
+                       <Button type="button" variant="outline" onClick={() => setIsDevelopDialogActive(false)}>Cancel</Button>
                     </DialogClose>
                     <Button 
                       type="button" 
                       onClick={handleDevelopPersonality}
-                      disabled={isDevelopingPersonality || !isDevelopDialogValpromptd}
+                      disabled={isDevelopingPersonality || !developmentPrompts.trim()}
                     >
                       {isDevelopingPersonality ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4"/>}
                       Update Personality
@@ -241,7 +236,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
               <h3 className="text-sm font-semibold text-muted-foreground flex items-center">
                 <Zap className="h-4 w-4 mr-2 text-primary" /> Personality Insights & Stats
               </h3>
-              <Button onClick={handleAnalyzeInsights} disabled={isLoadingInsights} size="sm" variant="outline">
+              <Button onClick={handleAnalyzeInsights} disabled={isLoadingInsights || !userId} size="sm" variant="outline">
                 {isLoadingInsights ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -279,7 +274,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                                 const radius = innerRadius + (outerRadius - innerRadius) * 0.6;
                                 const x = cx + radius * Math.cos(-midAngle * RADIAN);
                                 const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                                if (percent < 0.05) return null; // Don't render label for very small slices
+                                if (percent < 0.05) return null;
                                 return (
                                   <text x={x} y={y} fill="hsl(var(--primary-foreground))" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="10px">
                                     {`${(percent * 100).toFixed(0)}%`}
@@ -300,13 +295,13 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                       <CardHeader><CardTitle className="text-base">Top Keywords</CardTitle></CardHeader>
                       <CardContent className="h-[200px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                           <BarChart data={keywordData} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
+                           <RechartsBarChart data={keywordData} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                             <XAxis type="number" stroke="hsl(var(--foreground))" fontSize={10} />
                             <YAxis dataKey="name" type="category" stroke="hsl(var(--foreground))" width={60} fontSize={10} interval={0} />
                             <RechartsTooltip {...chartTooltipProps} />
                             <Bar dataKey="Frequency" fill="hsl(var(--chart-4))" barSize={15} radius={[0, 4, 4, 0]} />
-                          </BarChart>
+                          </RechartsBarChart>
                         </ResponsiveContainer>
                       </CardContent>
                     </Card>

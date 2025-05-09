@@ -1,7 +1,8 @@
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, Edit2, Trash2, CornerDownLeft, Info } from 'lucide-react';
+import { Send, Loader2, Trash2, Info } from 'lucide-react';
 import type { Persona, ChatMessage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { getChatMessages, saveChatMessage, clearChatMessages as clearChatMessagesFromStore } from '@/lib/store';
 import { generateResponse } from '@/ai/flows/generate-response';
 import { formatDistanceToNow } from 'date-fns';
@@ -26,11 +28,14 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
   const [contextInput, setContextInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const { userId } = useAuth();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setMessages(getChatMessages(persona.id));
-  }, [persona.id]);
+    if (userId) {
+      setMessages(getChatMessages(userId, persona.id));
+    }
+  }, [persona.id, userId]);
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -40,11 +45,11 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
 
   const handleSendMessage = async (e?: React.FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
-    if (!userInput.trim()) return;
+    if (!userInput.trim() || !userId) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
-      personaId: persona.id,
+      personaId: persona.id, // This is fine, as personaId is part of the message data
       sender: 'user',
       text: userInput,
       timestamp: new Date().toISOString(),
@@ -52,9 +57,9 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    saveChatMessage(persona.id, userMessage);
+    saveChatMessage(userId, persona.id, userMessage);
     setUserInput('');
-    // Keep contextInput for subsequent messages unless cleared by user
+    // contextInput is intentionally kept
 
     setIsLoading(true);
     try {
@@ -73,7 +78,7 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
         context: contextInput,
       };
       setMessages((prev) => [...prev, aiMessage]);
-      saveChatMessage(persona.id, aiMessage);
+      saveChatMessage(userId, persona.id, aiMessage);
     } catch (error) {
       console.error('Failed to get AI response:', error);
       toast({
@@ -89,14 +94,15 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorAiMessage]);
-      saveChatMessage(persona.id, errorAiMessage);
+      if (userId) saveChatMessage(userId, persona.id, errorAiMessage);
     } finally {
       setIsLoading(false);
     }
   };
   
   const clearChat = () => {
-    clearChatMessagesFromStore(persona.id);
+    if (!userId) return;
+    clearChatMessagesFromStore(userId, persona.id);
     setMessages([]);
     toast({title: "Chat Cleared", description: "The chat history for this persona has been cleared."});
   };
@@ -115,7 +121,7 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
           />
           <CardTitle className="text-lg font-semibold">Chat with {persona.name}</CardTitle>
         </div>
-        <Button variant="outline" size="sm" onClick={clearChat} title="Clear chat history">
+        <Button variant="outline" size="sm" onClick={clearChat} title="Clear chat history" disabled={!userId}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </CardHeader>
@@ -149,6 +155,7 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
               </div>
               {msg.sender === 'user' && (
                 <Avatar className="h-8 w-8">
+                  {/* User avatar can be customized if user profiles have images */}
                   <AvatarFallback>U</AvatarFallback>
                 </Avatar>
               )}
@@ -177,11 +184,12 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
               onChange={(e) => setContextInput(e.target.value)}
               className="min-h-[40px] max-h-[100px] text-sm resize-none flex-grow"
               rows={1}
+              disabled={!userId}
             />
              <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setContextInput('')} title="Clear context">
+                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setContextInput('')} title="Clear context" disabled={!userId}>
                     <Info className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </TooltipTrigger>
@@ -203,8 +211,9 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
                   handleSendMessage();
                 }
               }}
+              disabled={!userId}
             />
-            <Button type="submit" disabled={isLoading || !userInput.trim()}>
+            <Button type="submit" disabled={isLoading || !userInput.trim() || !userId}>
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (

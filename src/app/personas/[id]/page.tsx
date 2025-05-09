@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -7,35 +8,59 @@ import ChatInterface from '@/components/chat/ChatInterface';
 import type { Persona } from '@/lib/types';
 import { getPersonaById } from '@/lib/store';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+
 
 export default function PersonaPage() {
-  const params = useParams();
+  const { user, loadingAuth, userId } = useAuth();
   const router = useRouter();
+  const params = useParams();
+  
   const [persona, setPersona] = useState<Persona | null | undefined>(undefined); // undefined for loading, null for not found
+  const [pageLoading, setPageLoading] = useState(true);
 
-  const personaId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const personaIdParams = Array.isArray(params.id) ? params.id[0] : params.id;
 
   useEffect(() => {
-    if (personaId) {
-      const fetchedPersona = getPersonaById(personaId);
-      if (fetchedPersona) {
-        setPersona(fetchedPersona);
-      } else {
-        setPersona(null); // Persona not found
-      }
+    if (!loadingAuth && !user) {
+      router.push('/login');
     }
-  }, [personaId]);
+  }, [user, loadingAuth, router]);
+
+  useEffect(() => {
+    if (userId && personaIdParams) {
+      const fetchedPersona = getPersonaById(userId, personaIdParams);
+      setPersona(fetchedPersona || null); // Set to null if not found
+      setPageLoading(false);
+    } else if (!loadingAuth && !user) {
+      // User is not logged in, redirect is handled above
+      setPageLoading(false);
+    }
+    // If loadingAuth or userId/personaIdParams are not available, pageLoading remains true
+  }, [userId, personaIdParams, loadingAuth, user]);
+
 
   const handlePersonaUpdate = (updatedPersona: Persona) => {
-    setPersona(updatedPersona);
+    setPersona(updatedPersona); // This assumes savePersona in PersonaProfileDisplay handles storage
   };
 
-  if (persona === undefined) {
+  if (loadingAuth || pageLoading) {
     return (
-      <div className="h-screen grid md:grid-cols-[350px_1fr] lg:grid-cols-[400px_1fr] gap-1 p-1">
+      <div className="h-[calc(100vh-var(--header-height,0px)-2rem)] grid md:grid-cols-[350px_1fr] lg:grid-cols-[400px_1fr] gap-1 p-1">
         <Skeleton className="h-full w-full rounded-lg" />
         <Skeleton className="h-full w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  if (!user) {
+     // Should be caught by redirect, but as a fallback
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p>Redirecting to login...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -50,10 +75,19 @@ export default function PersonaPage() {
       </div>
     );
   }
+  
+  if (persona === undefined) { // Still loading persona data specifically
+     return (
+      <div className="h-[calc(100vh-var(--header-height,0px)-2rem)] grid md:grid-cols-[350px_1fr] lg:grid-cols-[400px_1fr] gap-1 p-1">
+        <Skeleton className="h-full w-full rounded-lg" />
+        <Skeleton className="h-full w-full rounded-lg" />
+      </div>
+    );
+  }
+
 
   return (
     <div className="h-[calc(100vh-var(--header-height,0px)-2rem)] md:h-[calc(100vh-2rem)] grid md:grid-cols-[350px_1fr] lg:grid-cols-[400px_1fr] gap-1 p-0 md:p-1 max-h-screen overflow-hidden">
-      {/* CSS variable for header height on mobile is needed if header is fixed */}
       <style jsx global>{`
         :root {
           --header-height: 3.5rem; /* 56px, h-14 Tailwind class */
@@ -65,7 +99,6 @@ export default function PersonaPage() {
       <div className="h-full">
         <ChatInterface persona={persona} />
       </div>
-      {/* Drawer/Sheet for profile on mobile - Future enhancement */}
     </div>
   );
 }

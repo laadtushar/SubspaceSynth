@@ -1,32 +1,71 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { PlusCircle, Search, Users } from 'lucide-react';
+import { PlusCircle, Search, Users, Loader2 } from 'lucide-react';
 import PersonaCard from '@/components/personas/PersonaCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Persona } from '@/lib/types';
 import { getPersonas, deletePersona as deletePersonaFromStore } from '@/lib/store';
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
 
 export default function DashboardPage() {
+  const { user, loadingAuth, userId } = useAuth();
+  const router = useRouter();
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [pageLoading, setPageLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
-    setPersonas(getPersonas());
-  }, []);
+    if (!loadingAuth && !user) {
+      router.push('/login');
+    }
+  }, [user, loadingAuth, router]);
 
-  const handleDeletePersona = (id: string) => {
-    deletePersonaFromStore(id);
-    setPersonas(prevPersonas => prevPersonas.filter(p => p.id !== id));
+  useEffect(() => {
+    if (userId) {
+      setPersonas(getPersonas(userId));
+      setPageLoading(false);
+    } else if (!loadingAuth && !user) {
+       // User is not logged in and auth is not loading, handled by above redirect
+       setPageLoading(false);
+    }
+    // If loadingAuth is true, or userId is not yet available, keep pageLoading true
+  }, [userId, loadingAuth, user]);
+
+  const handleDeletePersona = (personaId: string) => {
+    if (!userId) return;
+    deletePersonaFromStore(userId, personaId);
+    setPersonas(prevPersonas => prevPersonas.filter(p => p.id !== personaId));
     toast({
       title: "Persona Deleted",
       description: "The persona has been successfully deleted.",
     });
   };
+
+  if (loadingAuth || pageLoading) {
+    return (
+      <div className="flex justify-center items-center h-[calc(100vh-var(--header-height,0px)-2rem)]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  
+  if (!user) {
+    // This case should ideally be handled by the redirect, but as a fallback
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p>Redirecting to login...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
 
   const filteredPersonas = personas.filter(persona =>
     persona.name.toLowerCase().includes(searchTerm.toLowerCase())
