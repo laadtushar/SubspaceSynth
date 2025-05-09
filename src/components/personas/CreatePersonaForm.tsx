@@ -41,6 +41,7 @@ export default function CreatePersonaForm() {
     defaultValues: {
       name: '',
       chatHistory: '',
+      // mbti, age, gender will be undefined by default
     },
   });
 
@@ -161,7 +162,18 @@ export default function CreatePersonaForm() {
                   <FormItem>
                     <FormLabel>Age (Optional)</FormLabel>
                     <FormControl>
-                      <Input type="number" placeholder="E.g., 30" {...field} onChange={event => field.onChange(+event.target.value)} />
+                      <Input
+                        type="number"
+                        placeholder="E.g., 30"
+                        {...field}
+                        value={field.value ?? ''} // Ensure controlled input, use '' for undefined
+                        onChange={event => {
+                          const val = event.target.value;
+                          // For optional numeric fields, an empty input should typically mean 'undefined'
+                          // Pass the raw string to Zod for coercion, or undefined if empty
+                          field.onChange(val === "" ? undefined : val);
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
