@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -24,9 +25,13 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, BarChart } from 'recharts';
 import type { ChartConfig } from '@/components/ui/chart'; // Assuming ChartConfig is defined and exportable
 
+interface PersonaProfileDisplayProps {
+  persona: Persona;
+  onPersonaUpdate: (updatedPersona: Persona) => void;
+}
 
 // Helper to check if insights are in the new structured format
 const isStructuredInsights = (insights: any): insights is AnalyzePersonaInsightsOutput => {
@@ -38,7 +43,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isDevelopingPersonality, setIsDevelopingPersonality] = useState(false);
   const [developmentPrompts, setDevelopmentPrompts] = useState('');
-  const [isDevelopDialogValid, setIsDevelopDialogValid] = useState(false);
+  const [isDevelopDialogValpromptd, setIsDevelopDialogValpromptd] = useState(false);
   const { toast } = useToast();
 
   const handleAnalyzeInsights = async () => {
@@ -100,7 +105,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
         description: `${persona.name}'s personality has been successfully updated.`,
       });
       setDevelopmentPrompts(''); 
-      setIsDevelopDialogValid(false);
+      setIsDevelopDialogValpromptd(false);
       // Manually find and click the close button if possible, or manage open state
       document.getElementById(`develop-dialog-close-${persona.id}`)?.click();
 
@@ -118,7 +123,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
 
   const onDevelopmentPromptsChange = (value: string) => {
     setDevelopmentPrompts(value);
-    setIsDevelopDialogValid(value.trim().length > 0);
+    setIsDevelopDialogValpromptd(value.trim().length > 0);
   };
 
   const currentInsights = persona.personalityInsights;
@@ -217,7 +222,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                     <Button 
                       type="button" 
                       onClick={handleDevelopPersonality}
-                      disabled={isDevelopingPersonality || !isDevelopDialogValid}
+                      disabled={isDevelopingPersonality || !isDevelopDialogValpromptd}
                     >
                       {isDevelopingPersonality ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4"/>}
                       Update Personality
