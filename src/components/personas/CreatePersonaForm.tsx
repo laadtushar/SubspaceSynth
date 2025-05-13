@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -19,7 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 import type { Persona } from '@/lib/types';
 import { MBTI_TYPES, GENDERS } from '@/lib/types';
-import { savePersona as savePersonaToDB } from '@/lib/store'; // Updated function
+import { savePersona as savePersonaToDB } from '@/lib/store'; 
 import { createPersonaFromChat } from '@/ai/flows/create-persona-from-chat';
 
 const personaFormSchema = z.object({
@@ -62,7 +61,7 @@ export default function CreatePersonaForm() {
       const aiResponse = await createPersonaFromChat({ chatHistory: data.chatHistory });
       
       const newPersona: Persona = {
-        id: crypto.randomUUID(), // Client-side ID generation for Firebase path
+        id: crypto.randomUUID(), 
         name: data.name,
         originType: 'user-created',
         chatHistory: data.chatHistory,
@@ -74,7 +73,7 @@ export default function CreatePersonaForm() {
         avatarUrl: `https://picsum.photos/seed/${data.name + Date.now()}/200/200`
       };
 
-      await savePersonaToDB(userId, newPersona); // Save to Firebase
+      await savePersonaToDB(userId, newPersona); 
       toast({
         title: 'Persona Created!',
         description: `${data.name} has been successfully created and analyzed.`,
@@ -181,7 +180,7 @@ export default function CreatePersonaForm() {
                         value={field.value ?? ''}
                         onChange={event => {
                           const val = event.target.value;
-                          field.onChange(val === "" ? undefined : Number(val)); // Ensure it's a number or undefined
+                          field.onChange(val === "" ? undefined : Number(val)); 
                         }}
                       />
                     </FormControl>
@@ -200,7 +199,7 @@ export default function CreatePersonaForm() {
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select Gender" />
-                        </Trigger>
+                        </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         {GENDERS.map((gender) => (
