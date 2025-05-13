@@ -25,12 +25,12 @@ export default function NewPersonaPage() {
 
   useEffect(() => {
     let unsubscribePersonas: (() => void) | undefined;
+    let firstFetchDone = false; // Declare firstFetchDone in the useEffect scope
 
     if (userId) {
       setIsLoadingPersonaCount(true);
       // This listener will fetch personas. We take the length for the count.
       // It unsubscribes after the first data fetch to avoid continuous updates on this page for just the count.
-      let firstFetchDone = false;
       unsubscribePersonas = getPersonas(userId, (fetchedPersonas: Persona[]) => {
         if (!firstFetchDone) {
           setPersonasCount(fetchedPersonas.length);
