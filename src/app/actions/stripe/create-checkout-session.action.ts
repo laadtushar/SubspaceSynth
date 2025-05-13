@@ -1,28 +1,27 @@
+
 'use server';
 
 /**
- * @fileOverview Server Action to simulate creating a Stripe Checkout session.
- * In a real application, this would interact with the Stripe API.
- * For this simulation, it will directly update the user's persona quota.
+ * @fileOverview Server Action to create a Stripe Checkout session or simulate payment.
+ * If Stripe is configured, it creates a real Checkout session.
+ * Otherwise, it simulates a successful payment and updates the user's quota directly.
  */
 
-import { auth, db } from '@/lib/firebase'; // Assuming auth is Firebase Auth instance
+import { auth } from '@/lib/firebase'; 
 import { updateUserProfileInDB, getUserProfileById } from '@/lib/store';
-import { FREE_PERSONA_LIMIT, PERSONAS_PER_PURCHASE, STRIPE_PRICE_ID_PERSONA_SLOT, STRIPE_CURRENCY } from '@/lib/constants';
-// import { stripe, isStripeEnabled } from '@/lib/stripe'; // Conceptual: Would import real Stripe instance
+import { FREE_PERSONA_LIMIT, PERSONAS_PER_PURCHASE, STRIPE_CURRENCY } from '@/lib/constants';
+import { stripe, isStripeEnabled } from '@/lib/stripe';
 
 interface CheckoutSessionResult {
   success: boolean;
   message: string;
-  sessionId?: string; // For real Stripe redirect
-  redirectUrl?: string; // For real Stripe redirect
-  newQuota?: number;
+  sessionId?: string; 
+  redirectUrl?: string; 
+  newQuota?: number; // Only for simulation
 }
 
 export async function createCheckoutSessionAction(
-  userId: string,
-  // In a real scenario, you might pass a priceId or product details
-  // For now, we use a constant priceId for the persona slot
+  userId: string
 ): Promise<CheckoutSessionResult> {
   if (!userId) {
     return { success: false, message: 'User not authenticated.' };
@@ -33,62 +32,71 @@ export async function createCheckoutSessionAction(
     return { success: false, message: 'User profile not found.' };
   }
 
-  // --- SIMULATED STRIPE CHECKOUT CREATION & PAYMENT ---
-  // In a real application, this is where you'd use the Stripe SDK:
-  //
-  // if (!isStripeEnabled) {
-  //   return { success: false, message: 'Stripe is not configured on the server.' };
-  // }
-  //
-  // try {
-  //   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  //   if (!appUrl) {
-  //     throw new Error('NEXT_PUBLIC_APP_URL is not set.');
-  //   }
-  //
-  //   const session = await stripe.checkout.sessions.create({
-  //     payment_method_types: ['card'],
-  //     line_items: [
-  //       {
-  //         price: STRIPE_PRICE_ID_PERSONA_SLOT, // Replace with your actual Price ID from Stripe Dashboard
-  //         quantity: 1,
-  //       },
-  //     ],
-  //     mode: 'payment',
-  //     success_url: `${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-  //     cancel_url: `${appUrl}/payment/cancel`,
-  //     client_reference_id: userId, // Important for identifying the user in webhooks
-  //     metadata: {
-  //       userId: userId,
-  //       item: `Purchase of ${PERSONAS_PER_PURCHASE} persona slot(s)`,
-  //     }
-  //   });
-  //
-  //   return { success: true, message: 'Checkout session created.', sessionId: session.id, redirectUrl: session.url };
-  //
-  // } catch (error: any) {
-  //   console.error('Stripe session creation error:', error);
-  //   return { success: false, message: `Stripe error: ${error.message}` };
-  // }
+  const stripePriceId = process.env.STRIPE_PRICE_ID_PERSONA_SLOT;
 
-  // --- SIMULATION LOGIC ---
-  // For this demo, we directly increment the persona quota as if payment was successful.
-  console.log(`Simulating Stripe checkout session creation for user: ${userId} for price ID: ${STRIPE_PRICE_ID_PERSONA_SLOT}`);
+  if (isStripeEnabled && stripe && stripePriceId) {
+    // --- REAL STRIPE CHECKOUT CREATION ---
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      if (!appUrl) {
+        console.error('NEXT_PUBLIC_APP_URL is not set. Stripe success/cancel URLs will be incorrect.');
+        return { success: false, message: 'Application URL is not configured on the server.' };
+      }
 
-  try {
-    const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
-    const newQuota = currentQuota + PERSONAS_PER_PURCHASE;
-    
-    await updateUserProfileInDB(userId, { personaQuota: newQuota });
-    
-    console.log(`User ${userId} quota updated to ${newQuota} (simulated payment).`);
-    return {
-      success: true,
-      message: `Payment successful (Simulated). ${PERSONAS_PER_PURCHASE} persona slot(s) added.`,
-      newQuota: newQuota,
-    };
-  } catch (error: any) {
-    console.error('Error updating persona quota during simulation:', error);
-    return { success: false, message: `Failed to update quota: ${error.message}` };
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: stripePriceId,
+            quantity: 1, // Corresponds to purchasing PERSONAS_PER_PURCHASE slots
+          },
+        ],
+        mode: 'payment',
+        success_url: `${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`, // User redirected here on success
+        cancel_url: `${appUrl}/payment/cancel`,      // User redirected here on cancellation
+        client_reference_id: userId, // Pass userId to identify user in webhook
+        metadata: {
+          userId: userId,
+          item: `Purchase of ${PERSONAS_PER_PURCHASE} persona slot(s)`,
+          purchaseUnits: PERSONAS_PER_PURCHASE.toString(), // Store how many units this price ID represents
+        }
+      });
+
+      if (!session.url) {
+        return { success: false, message: 'Stripe session created but no redirect URL was returned.' };
+      }
+
+      return { 
+        success: true, 
+        message: 'Stripe Checkout session created.', 
+        sessionId: session.id, 
+        redirectUrl: session.url 
+      };
+
+    } catch (error: any) {
+      console.error('Stripe session creation error:', error);
+      return { success: false, message: `Stripe error: ${error.message}` };
+    }
+  } else {
+    // --- SIMULATED PAYMENT LOGIC (Stripe not enabled or configured) ---
+    console.log(`Stripe not configured. Simulating payment for user: ${userId} for price ID: ${stripePriceId || 'N/A'}`);
+    try {
+      const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
+      const newQuota = currentQuota + PERSONAS_PER_PURCHASE;
+      
+      await updateUserProfileInDB(userId, { personaQuota: newQuota });
+      
+      console.log(`User ${userId} quota updated to ${newQuota} (simulated payment).`);
+      return {
+        success: true,
+        message: `Payment successful (Simulated). ${PERSONAS_PER_PURCHASE} persona slot(s) added. New quota: ${newQuota}.`,
+        newQuota: newQuota,
+      };
+    } catch (error: any) {
+      console.error('Error updating persona quota during simulation:', error);
+      return { success: false, message: `Failed to update quota (simulation): ${error.message}` };
+    }
   }
 }
+
+    

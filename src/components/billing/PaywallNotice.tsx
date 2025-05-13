@@ -8,8 +8,10 @@ import { DollarSign, Info, ShoppingCart, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { PAID_PERSONA_PRICE_POUNDS, PERSONAS_PER_PURCHASE, STRIPE_PRICE_ID_PERSONA_SLOT } from '@/lib/constants';
-import { createCheckoutSessionAction } from '@/app/actions/stripe/create-checkout-session.action'; // New Server Action
+import { PAID_PERSONA_PRICE_POUNDS, PERSONAS_PER_PURCHASE } from '@/lib/constants';
+import { createCheckoutSessionAction } from '@/app/actions/stripe/create-checkout-session.action';
+import { isStripeEnabled } from '@/lib/stripe'; // Import isStripeEnabled
+import { loadStripe } from '@stripe/stripe-js';
 
 interface PaywallNoticeProps {
   currentPersonaCount: number;
@@ -17,7 +19,7 @@ interface PaywallNoticeProps {
 }
 
 export default function PaywallNotice({ currentPersonaCount, currentQuota }: PaywallNoticeProps) {
-  const { userId, userProfile, loadingAuth: authLoading } = useAuth(); // userProfile needed for quota updates
+  const { userId, userProfile, loadingAuth: authLoading } = useAuth();
   const { toast } = useToast();
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
@@ -33,25 +35,67 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
 
     setIsProcessingPayment(true);
     
-    // Call the Server Action
     const result = await createCheckoutSessionAction(userId);
 
     if (result.success) {
-      toast({
-        title: "Payment Processed (Simulated)",
-        description: result.message, // Message from server action, includes new quota details
-      });
-      // AuthContext will refresh userProfile with the new quota through its listeners
-      // or the page displaying the quota will re-fetch/re-render.
-      // No explicit redirect to Stripe here, as it's a full simulation within the server action.
+      if (isStripeEnabled && result.redirectUrl && result.sessionId) {
+        // Real Stripe: Redirect to Checkout
+        const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+        if (!stripePublishableKey) {
+          toast({
+            title: "Configuration Error",
+            description: "Stripe publishable key is not configured. Cannot redirect to payment.",
+            variant: "destructive",
+          });
+          setIsProcessingPayment(false);
+          return;
+        }
+        try {
+          const stripe = await loadStripe(stripePublishableKey);
+          if (!stripe) {
+            throw new Error("Stripe.js failed to load.");
+          }
+          const { error } = await stripe.redirectToCheckout({ sessionId: result.sessionId });
+          if (error) {
+            throw error;
+          }
+          // Redirect will happen, no further processing here if successful.
+          // If redirectToCheckout fails, error is caught below.
+        } catch (stripeError: any) {
+          console.error("Stripe redirection error:", stripeError);
+          toast({
+            title: "Payment Error",
+            description: stripeError.message || "Could not redirect to Stripe Checkout. Please try again.",
+            variant: "destructive",
+          });
+          setIsProcessingPayment(false);
+        }
+        // No setIsProcessingPayment(false) here as user is redirected or error is handled.
+      } else if (!isStripeEnabled && result.newQuota !== undefined) {
+        // Simulation: Show success toast (server action already updated quota)
+        toast({
+          title: "Payment Processed (Simulated)",
+          description: result.message,
+        });
+        setIsProcessingPayment(false);
+      } else {
+        // Fallback or unexpected scenario from server action
+         toast({
+          title: "Notice",
+          description: result.message || "Payment status unclear.",
+          variant: "default",
+        });
+        setIsProcessingPayment(false);
+      }
     } else {
+      // Payment failed (either real Stripe setup issue or simulation failure)
       toast({
-        title: "Payment Failed (Simulated)",
-        description: result.message || "An unexpected error occurred.",
+        title: "Payment Failed",
+        description: result.message || "An unexpected error occurred during payment processing.",
         variant: "destructive",
       });
+      setIsProcessingPayment(false);
     }
-    setIsProcessingPayment(false);
   };
 
   return (
@@ -77,19 +121,21 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
               <p className="font-semibold text-lg text-green-700 dark:text-green-300">
                 Unlock {PERSONAS_PER_PURCHASE} Persona Slot for £{PAID_PERSONA_PRICE_POUNDS}
               </p>
-              <p className="text-xs text-green-500 dark:text-green-500">One-time payment (Simulated)</p>
+              <p className="text-xs text-green-500 dark:text-green-500">One-time payment{isStripeEnabled ? "" : " (Simulated)"}</p>
             </div>
           </div>
            <p className="text-xs text-center text-muted-foreground/80 mt-2">
             <Info className="inline h-3 w-3 mr-1" />
-            <strong>This is a simulated payment flow.</strong> Clicking the button below will not process a real transaction 
-            but will update your persona quota for demo purposes by calling a server action that mimics a successful payment.
-            A real Stripe integration would redirect you to Stripe Checkout.
+            {isStripeEnabled 
+              ? "You will be redirected to Stripe to complete your purchase securely." 
+              : "This is a simulated payment flow. Clicking the button below will not process a real transaction but will update your persona quota for demo purposes."
+            }
           </p>
-           <p className="text-xs text-center text-muted-foreground/80 mt-1">
-            For a real integration, you would need to set up Stripe API keys, products, prices, and webhooks.
-            You would also need to install the <code>stripe</code> and <code>@stripe/stripe-js</code> packages.
-          </p>
+           {!isStripeEnabled && (
+             <p className="text-xs text-center text-muted-foreground/80 mt-1">
+                For a real integration, ensure Stripe API keys, product, price ID, and webhook are correctly configured in your environment.
+             </p>
+           )}
         </CardContent>
         <CardFooter className="flex flex-col gap-3 pt-6">
           <Button 
@@ -99,7 +145,7 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
             disabled={authLoading || isProcessingPayment}
           >
             {isProcessingPayment ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <ShoppingCart className="mr-2 h-5 w-5" />}
-            Pay £{PAID_PERSONA_PRICE_POUNDS} (Simulated)
+            {isStripeEnabled ? `Pay £${PAID_PERSONA_PRICE_POUNDS} via Stripe` : `Pay £${PAID_PERSONA_PRICE_POUNDS} (Simulated)`}
           </Button>
           <Link href="/" passHref className="w-full">
             <Button variant="outline" className="w-full">
