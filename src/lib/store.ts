@@ -184,13 +184,21 @@ export const getUserContacts = (currentUserId: string, callback: (contacts: User
 
 
 // --- AI Persona Management ---
-export const savePersona = async (userId: string, persona: Persona): Promise<void> => {
+export const savePersona = async (userId: string, personaData: Persona): Promise<void> => {
   if (!userId) throw new Error("User ID is required to save a persona.");
-  const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${persona.id}`);
+  const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${personaData.id}`);
+  
+  // Firebase does not allow 'undefined' values.
+  // JSON.stringify will remove keys with 'undefined' values.
+  // JSON.parse will then reconstruct the object without these keys.
+  const cleanedPersona = JSON.parse(JSON.stringify(personaData));
+
   try {
-    await set(personaRef, persona);
+    await set(personaRef, cleanedPersona);
   } catch (error) {
-    console.error(`Error saving persona ${persona.id}:`, error);
+    console.error(`Error saving persona ${personaData.id}:`, error);
+    console.error('Original persona data:', JSON.stringify(personaData, null, 2));
+    console.error('Cleaned persona data for Firebase:', JSON.stringify(cleanedPersona, null, 2));
     throw error;
   }
 };
@@ -404,5 +412,3 @@ export const clearUserChatMessages = async (chatId: string): Promise<void> => {
     throw error;
   }
 };
-
-    
