@@ -49,20 +49,25 @@ export async function POST(req: NextRequest) {
     try {
       const userProfile = await getUserProfileById(userId);
       if (!userProfile) {
-        console.error(`Webhook error: User profile not found for userId ${userId} after successful payment.`);
-        // Consider creating a pending fulfillment record or alerting admin
-        return NextResponse.json({ error: 'User profile not found for payment fulfillment.' }, { status: 404 });
+        console.error(`Webhook error: User profile for userId ${userId} not found during payment fulfillment for session ${session.id}. Stripe will retry.`);
+        // Return a 500 error to tell Stripe to retry the webhook.
+        // This can help if there's a slight delay in profile creation after signup.
+        return NextResponse.json({ error: 'User profile not found, fulfillment postponed. Stripe will retry.' }, { status: 500 });
       }
 
       // Determine how many persona slots were purchased from metadata or line items
-      // For simplicity, we'll use PERSONAS_PER_PURCHASE if metadata isn't detailed.
-      // A more robust solution might check session.line_items or specific metadata.
-      const purchasedUnits = session.metadata?.purchaseUnits ? parseInt(session.metadata.purchaseUnits, 10) : PERSONAS_PER_PURCHASE;
+      const purchasedUnitsString = session.metadata?.purchaseUnits;
+      let purchasedUnits = PERSONAS_PER_PURCHASE; // Default
       
-      if (isNaN(purchasedUnits) || purchasedUnits <= 0) {
-        console.error(`Webhook error: Invalid purchaseUnits in metadata for session ${session.id}. Defaulting to ${PERSONAS_PER_PURCHASE}.`);
-        // Fallback to default if metadata is missing or invalid
-        // purchasedUnits = PERSONAS_PER_PURCHASE; 
+      if (purchasedUnitsString) {
+        const parsedUnits = parseInt(purchasedUnitsString, 10);
+        if (!isNaN(parsedUnits) && parsedUnits > 0) {
+          purchasedUnits = parsedUnits;
+        } else {
+          console.warn(`Webhook: Invalid purchaseUnits ('${purchasedUnitsString}') in metadata for session ${session.id}. Defaulting to ${PERSONAS_PER_PURCHASE}.`);
+        }
+      } else {
+        console.warn(`Webhook: purchaseUnits missing in metadata for session ${session.id}. Defaulting to ${PERSONAS_PER_PURCHASE}.`);
       }
 
 
@@ -73,7 +78,7 @@ export async function POST(req: NextRequest) {
       console.log(`Webhook: User ${userId} persona quota updated to ${newQuota}.`);
 
     } catch (dbError: any) {
-      console.error(`Webhook error: Database error fulfilling purchase for user ${userId}: ${dbError.message}`);
+      console.error(`Webhook error: Database error fulfilling purchase for user ${userId} in session ${session.id}: ${dbError.message}`);
       // Implement retry logic or alert system if critical
       return NextResponse.json({ error: 'Database error fulfilling purchase.' }, { status: 500 });
     }
