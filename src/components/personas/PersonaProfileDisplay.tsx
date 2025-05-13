@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 
 import type { Persona, ChatMessage, ExportedPersonaData, AnalyzePersonaInsightsOutput, LinguisticFeaturesSchema, InteractionStatsSchema } from '@/lib/types';
-import { MBTI_TYPES, GENDERS } from '@/lib/types';
+import { MBTI_TYPES, GENDERS, type MBTIType, type Gender } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -48,11 +48,13 @@ const isStructuredInsights = (insights: any): insights is AnalyzePersonaInsights
   return typeof insights === 'object' && insights !== null && 'summary' in insights && 'sentiment' in insights;
 };
 
+const SELECT_NONE_VALUE = "__NONE__"; // Special value for "None" selection
+
 const editPersonaFormSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters.").max(50),
-  mbti: z.enum(MBTI_TYPES).optional().or(z.literal('')),
+  mbti: z.union([z.enum(MBTI_TYPES), z.literal(SELECT_NONE_VALUE)]),
   age: z.coerce.number().int().positive().min(1).max(120).optional(),
-  gender: z.enum(GENDERS).optional().or(z.literal('')),
+  gender: z.union([z.enum(GENDERS), z.literal(SELECT_NONE_VALUE)]),
   category: z.string().max(50).optional().or(z.literal('')),
 });
 type EditPersonaFormValues = z.infer<typeof editPersonaFormSchema>;
@@ -77,9 +79,9 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
     resolver: zodResolver(editPersonaFormSchema),
     defaultValues: {
       name: persona.name,
-      mbti: persona.mbti || '',
+      mbti: persona.mbti || SELECT_NONE_VALUE,
       age: persona.age,
-      gender: persona.gender || '',
+      gender: persona.gender || SELECT_NONE_VALUE,
       category: persona.category || '',
     },
   });
@@ -88,9 +90,9 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
     if (persona) {
       editForm.reset({
         name: persona.name,
-        mbti: persona.mbti || '',
+        mbti: persona.mbti || SELECT_NONE_VALUE,
         age: persona.age,
-        gender: persona.gender || '',
+        gender: persona.gender || SELECT_NONE_VALUE,
         category: persona.category || '',
       });
     }
@@ -206,9 +208,9 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
       const updatedPersona: Persona = {
         ...persona,
         name: data.name,
-        mbti: data.mbti || undefined,
+        mbti: data.mbti === SELECT_NONE_VALUE ? undefined : data.mbti as MBTIType,
         age: data.age || undefined,
-        gender: data.gender || undefined,
+        gender: data.gender === SELECT_NONE_VALUE ? undefined : data.gender as Gender,
         category: data.category || undefined,
       };
       await savePersonaToDB(userId, updatedPersona);
@@ -367,10 +369,10 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>MBTI Type</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value || ''}>
+                              <Select onValueChange={field.onChange} value={field.value}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select MBTI" /></SelectTrigger></FormControl>
                                 <SelectContent>
-                                  <SelectItem value=""><em>None</em></SelectItem>
+                                  <SelectItem value={SELECT_NONE_VALUE}><em>None</em></SelectItem>
                                   {MBTI_TYPES.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
                                 </SelectContent>
                               </Select>
@@ -398,10 +400,10 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Gender</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value || ''}>
+                              <Select onValueChange={field.onChange} value={field.value}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select Gender" /></SelectTrigger></FormControl>
                                 <SelectContent>
-                                  <SelectItem value=""><em>None</em></SelectItem>
+                                  <SelectItem value={SELECT_NONE_VALUE}><em>None</em></SelectItem>
                                   {GENDERS.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
                                 </SelectContent>
                               </Select>
