@@ -10,7 +10,7 @@
 import { auth } from '@/lib/firebase'; 
 import { updateUserProfileInDB, getUserProfileById } from '@/lib/store';
 import { FREE_PERSONA_LIMIT, PERSONAS_PER_PURCHASE, STRIPE_CURRENCY } from '@/lib/constants';
-import { stripe, isStripeEnabled } from '@/lib/stripe';
+import { stripe, isStripeEnabled } from '@/lib/stripe'; // isStripeEnabled here refers to server-side SDK readiness
 
 interface CheckoutSessionResult {
   success: boolean;
@@ -39,8 +39,8 @@ export async function createCheckoutSessionAction(
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL;
       if (!appUrl) {
-        console.error('NEXT_PUBLIC_APP_URL is not set. Stripe success/cancel URLs will be incorrect.');
-        return { success: false, message: 'Application URL is not configured on the server.' };
+        console.error('CRITICAL: NEXT_PUBLIC_APP_URL is not set. Stripe success/cancel URLs will be incorrect.');
+        return { success: false, message: 'Application URL is not configured on the server. Cannot create Stripe session.' };
       }
 
       const session = await stripe.checkout.sessions.create({
@@ -48,17 +48,17 @@ export async function createCheckoutSessionAction(
         line_items: [
           {
             price: stripePriceId,
-            quantity: 1, // Corresponds to purchasing PERSONAS_PER_PURCHASE slots
+            quantity: 1, 
           },
         ],
         mode: 'payment',
-        success_url: `${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`, // User redirected here on success
-        cancel_url: `${appUrl}/payment/cancel`,      // User redirected here on cancellation
-        client_reference_id: userId, // Pass userId to identify user in webhook
+        success_url: `${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/payment/cancel`,
+        client_reference_id: userId, 
         metadata: {
           userId: userId,
           item: `Purchase of ${PERSONAS_PER_PURCHASE} persona slot(s)`,
-          purchaseUnits: PERSONAS_PER_PURCHASE.toString(), // Store how many units this price ID represents
+          purchaseUnits: PERSONAS_PER_PURCHASE.toString(), 
         }
       });
 
@@ -68,7 +68,7 @@ export async function createCheckoutSessionAction(
 
       return { 
         success: true, 
-        message: 'Stripe Checkout session created.', 
+        message: 'Stripe Checkout session created successfully.', 
         sessionId: session.id, 
         redirectUrl: session.url 
       };
@@ -78,8 +78,14 @@ export async function createCheckoutSessionAction(
       return { success: false, message: `Stripe error: ${error.message}` };
     }
   } else {
-    // --- SIMULATED PAYMENT LOGIC (Stripe not enabled or configured) ---
-    console.log(`Stripe not configured. Simulating payment for user: ${userId} for price ID: ${stripePriceId || 'N/A'}`);
+    // --- SIMULATED PAYMENT LOGIC (Stripe not enabled or configured for server-side) ---
+    let simulationMessage = 'Stripe not configured. Simulating payment.';
+    if (!isStripeEnabled) simulationMessage = 'Stripe server-side SDK not enabled. Simulating payment.';
+    else if (!stripe) simulationMessage = 'Stripe instance not available. Simulating payment.';
+    else if (!stripePriceId) simulationMessage = 'Stripe Price ID not configured. Simulating payment.';
+    
+    console.log(`${simulationMessage} User: ${userId}.`);
+
     try {
       const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
       const newQuota = currentQuota + PERSONAS_PER_PURCHASE;
@@ -98,5 +104,3 @@ export async function createCheckoutSessionAction(
     }
   }
 }
-
-    

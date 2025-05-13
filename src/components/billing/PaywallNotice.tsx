@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { PAID_PERSONA_PRICE_POUNDS, PERSONAS_PER_PURCHASE } from '@/lib/constants';
 import { createCheckoutSessionAction } from '@/app/actions/stripe/create-checkout-session.action';
-import { isStripeEnabled } from '@/lib/stripe'; // Import isStripeEnabled
+import { isStripeClientEnabled, isStripeEnabled as isStripeServerEnabled } from '@/lib/stripe'; 
 import { loadStripe } from '@stripe/stripe-js';
 
 interface PaywallNoticeProps {
@@ -22,6 +22,9 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
   const { userId, userProfile, loadingAuth: authLoading } = useAuth();
   const { toast } = useToast();
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+
+  // Determine if real Stripe flow can be used (both client and server configured)
+  const canUseRealStripe = isStripeClientEnabled() && isStripeServerEnabled;
 
   const handlePayment = async () => {
     if (!userId || !userProfile) {
@@ -38,9 +41,10 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
     const result = await createCheckoutSessionAction(userId);
 
     if (result.success) {
-      if (isStripeEnabled && result.redirectUrl && result.sessionId) {
+      if (canUseRealStripe && result.redirectUrl && result.sessionId) {
         // Real Stripe: Redirect to Checkout
         const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+        // This check is technically redundant if canUseRealStripe is true, but good for safety.
         if (!stripePublishableKey) {
           toast({
             title: "Configuration Error",
@@ -60,7 +64,6 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
             throw error;
           }
           // Redirect will happen, no further processing here if successful.
-          // If redirectToCheckout fails, error is caught below.
         } catch (stripeError: any) {
           console.error("Stripe redirection error:", stripeError);
           toast({
@@ -70,16 +73,15 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
           });
           setIsProcessingPayment(false);
         }
-        // No setIsProcessingPayment(false) here as user is redirected or error is handled.
-      } else if (!isStripeEnabled && result.newQuota !== undefined) {
+      } else if (result.newQuota !== undefined) { 
         // Simulation: Show success toast (server action already updated quota)
+        // This branch is hit if canUseRealStripe is false OR if the server action decided to simulate.
         toast({
-          title: "Payment Processed (Simulated)",
+          title: `Payment Processed ${!canUseRealStripe ? "(Simulated)" : ""}`,
           description: result.message,
         });
         setIsProcessingPayment(false);
       } else {
-        // Fallback or unexpected scenario from server action
          toast({
           title: "Notice",
           description: result.message || "Payment status unclear.",
@@ -88,7 +90,6 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
         setIsProcessingPayment(false);
       }
     } else {
-      // Payment failed (either real Stripe setup issue or simulation failure)
       toast({
         title: "Payment Failed",
         description: result.message || "An unexpected error occurred during payment processing.",
@@ -121,19 +122,24 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
               <p className="font-semibold text-lg text-green-700 dark:text-green-300">
                 Unlock {PERSONAS_PER_PURCHASE} Persona Slot for £{PAID_PERSONA_PRICE_POUNDS}
               </p>
-              <p className="text-xs text-green-500 dark:text-green-500">One-time payment{isStripeEnabled ? "" : " (Simulated)"}</p>
+              <p className="text-xs text-green-500 dark:text-green-500">One-time payment{canUseRealStripe ? "" : " (Simulated)"}</p>
             </div>
           </div>
            <p className="text-xs text-center text-muted-foreground/80 mt-2">
             <Info className="inline h-3 w-3 mr-1" />
-            {isStripeEnabled 
+            {canUseRealStripe 
               ? "You will be redirected to Stripe to complete your purchase securely." 
-              : "This is a simulated payment flow. Clicking the button below will not process a real transaction but will update your persona quota for demo purposes."
+              : "Stripe is not fully configured for real payments. This will be a simulated payment flow. Your persona quota will be updated for demo purposes without actual charges."
             }
           </p>
-           {!isStripeEnabled && (
-             <p className="text-xs text-center text-muted-foreground/80 mt-1">
-                For a real integration, ensure Stripe API keys, product, price ID, and webhook are correctly configured in your environment.
+           {!isStripeServerEnabled && ( // Show if server-side Stripe is not set up
+             <p className="text-xs text-center text-red-500 dark:text-red-400 mt-1">
+                Warning: Server-side Stripe (secret key) is not configured. Webhooks and other server operations will fail or simulate.
+             </p>
+           )}
+            {!isStripeClientEnabled() && isStripeServerEnabled && ( // Show if client-side is not set up but server is
+             <p className="text-xs text-center text-red-500 dark:text-red-400 mt-1">
+                Warning: Client-side Stripe (publishable key) is not configured. Redirect to checkout will fail.
              </p>
            )}
         </CardContent>
@@ -145,7 +151,7 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
             disabled={authLoading || isProcessingPayment}
           >
             {isProcessingPayment ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <ShoppingCart className="mr-2 h-5 w-5" />}
-            {isStripeEnabled ? `Pay £${PAID_PERSONA_PRICE_POUNDS} via Stripe` : `Pay £${PAID_PERSONA_PRICE_POUNDS} (Simulated)`}
+            {canUseRealStripe ? `Pay £${PAID_PERSONA_PRICE_POUNDS} via Stripe` : `Pay £${PAID_PERSONA_PRICE_POUNDS} (Simulated)`}
           </Button>
           <Link href="/" passHref className="w-full">
             <Button variant="outline" className="w-full">
