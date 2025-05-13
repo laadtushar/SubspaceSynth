@@ -8,7 +8,8 @@ import { DollarSign, Info, ShoppingCart, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { PAID_PERSONA_PRICE_POUNDS, PERSONAS_PER_PURCHASE } from '@/lib/constants';
+import { PAID_PERSONA_PRICE_POUNDS, PERSONAS_PER_PURCHASE, STRIPE_PRICE_ID_PERSONA_SLOT } from '@/lib/constants';
+import { createCheckoutSessionAction } from '@/app/actions/stripe/create-checkout-session.action'; // New Server Action
 
 interface PaywallNoticeProps {
   currentPersonaCount: number;
@@ -16,28 +17,41 @@ interface PaywallNoticeProps {
 }
 
 export default function PaywallNotice({ currentPersonaCount, currentQuota }: PaywallNoticeProps) {
-  const { incrementPersonaQuota, loadingAuth: authLoading } = useAuth();
+  const { userId, userProfile, loadingAuth: authLoading } = useAuth(); // userProfile needed for quota updates
   const { toast } = useToast();
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  const handleSimulatedPayment = async () => {
-    setIsProcessingPayment(true);
-    // Simulate Stripe payment process (e.g., redirect to Stripe Checkout, handle webhooks)
-    // For this demo, we'll just simulate a delay and success.
-    await new Promise(resolve => setTimeout(resolve, 1500)); 
-    
-    try {
-      await incrementPersonaQuota(PERSONAS_PER_PURCHASE);
+  const handlePayment = async () => {
+    if (!userId || !userProfile) {
       toast({
-        title: "Payment Successful (Simulated)",
-        description: `You can now create ${PERSONAS_PER_PURCHASE} more persona(s). Your new limit is ${currentQuota + PERSONAS_PER_PURCHASE}.`,
+        title: "Error",
+        description: "You must be logged in to make a purchase.",
+        variant: "destructive",
       });
-      // Optional: Could navigate or refresh, but AuthContext update should re-render dependent components
-    } catch (error) {
-      // Error toast is handled by incrementPersonaQuota in AuthContext
-    } finally {
-      setIsProcessingPayment(false);
+      return;
     }
+
+    setIsProcessingPayment(true);
+    
+    // Call the Server Action
+    const result = await createCheckoutSessionAction(userId);
+
+    if (result.success) {
+      toast({
+        title: "Payment Processed (Simulated)",
+        description: result.message, // Message from server action, includes new quota details
+      });
+      // AuthContext will refresh userProfile with the new quota through its listeners
+      // or the page displaying the quota will re-fetch/re-render.
+      // No explicit redirect to Stripe here, as it's a full simulation within the server action.
+    } else {
+      toast({
+        title: "Payment Failed (Simulated)",
+        description: result.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
+    setIsProcessingPayment(false);
   };
 
   return (
@@ -63,23 +77,29 @@ export default function PaywallNotice({ currentPersonaCount, currentQuota }: Pay
               <p className="font-semibold text-lg text-green-700 dark:text-green-300">
                 Unlock {PERSONAS_PER_PURCHASE} Persona Slot for £{PAID_PERSONA_PRICE_POUNDS}
               </p>
-              <p className="text-xs text-green-500 dark:text-green-500">One-time payment via Stripe (Simulated)</p>
+              <p className="text-xs text-green-500 dark:text-green-500">One-time payment (Simulated)</p>
             </div>
           </div>
            <p className="text-xs text-center text-muted-foreground/80 mt-2">
             <Info className="inline h-3 w-3 mr-1" />
-            This is a simulated payment. Clicking the button below will not process a real transaction but will update your quota for demo purposes.
+            <strong>This is a simulated payment flow.</strong> Clicking the button below will not process a real transaction 
+            but will update your persona quota for demo purposes by calling a server action that mimics a successful payment.
+            A real Stripe integration would redirect you to Stripe Checkout.
+          </p>
+           <p className="text-xs text-center text-muted-foreground/80 mt-1">
+            For a real integration, you would need to set up Stripe API keys, products, prices, and webhooks.
+            You would also need to install the <code>stripe</code> and <code>@stripe/stripe-js</code> packages.
           </p>
         </CardContent>
         <CardFooter className="flex flex-col gap-3 pt-6">
           <Button 
             className="w-full" 
             size="lg" 
-            onClick={handleSimulatedPayment} 
+            onClick={handlePayment} 
             disabled={authLoading || isProcessingPayment}
           >
             {isProcessingPayment ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <ShoppingCart className="mr-2 h-5 w-5" />}
-            Pay £{PAID_PERSONA_PRICE_POUNDS} with Stripe (Simulated)
+            Pay £{PAID_PERSONA_PRICE_POUNDS} (Simulated)
           </Button>
           <Link href="/" passHref className="w-full">
             <Button variant="outline" className="w-full">

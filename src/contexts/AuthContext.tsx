@@ -34,7 +34,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
   updateCurrentProfile: (updates: { name?: string; avatarUrl?: string; geminiApiKey?: string }) => Promise<void>;
-  incrementPersonaQuota: (amount: number) => Promise<void>;
+  // incrementPersonaQuota is removed as the server action now handles this for simulation,
+  // and a real webhook would update the DB directly, which this context would then reflect.
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -76,7 +77,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           name: existingProfile.name || firebaseUser.displayName || emailNamePart,
           avatarUrl: existingProfile.avatarUrl || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
           lastLogin: now,
-          geminiApiKey: existingProfile.geminiApiKey || '',
+          geminiApiKey: existingProfile.geminiApiKey !== undefined ? existingProfile.geminiApiKey : '', // Ensure geminiApiKey is always defined
           personaQuota: existingProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : existingProfile.personaQuota,
         };
         // Ensure all fields, including new ones, are updated if user logs in
@@ -110,6 +111,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         description: `Failed to load or create user profile: ${error.message}`,
         variant: 'destructive',
       });
+      // Fallback profile ensures app doesn't break if DB write fails but auth succeeds
       const fallbackProfile: UserProfile = {
         id: firebaseUser.uid,
         email: firebaseUser.email || '',
@@ -130,7 +132,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        await fetchOrCreateUserProfile(firebaseUser);
+        await fetchOrCreateUserProfile(firebaseUser); // This now sets userProfile
       } else {
         setUser(null);
         setUserId(null);
@@ -147,6 +149,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setLoadingAuth(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+      // fetchOrCreateUserProfile will be called by onAuthStateChanged listener
       
       try {
         await sendEmailVerification(userCredential.user);
@@ -178,12 +181,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error; 
     }
+    // setLoadingAuth(false) is handled by onAuthStateChanged listener ensuring profile is loaded
   };
 
   const loginWithEmail = async (values: AuthFormValues) => {
     setLoadingAuth(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
+      // fetchOrCreateUserProfile will be called by onAuthStateChanged listener
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
@@ -199,6 +204,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error; 
     }
+    // setLoadingAuth(false) is handled by onAuthStateChanged listener
   };
 
   const signInWithGoogle = async () => {
@@ -206,6 +212,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
+      // fetchOrCreateUserProfile will be called by onAuthStateChanged listener
       toast({
         title: 'Signed In with Google',
         description: 'Welcome!',
@@ -221,13 +228,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error;
     }
+    // setLoadingAuth(false) is handled by onAuthStateChanged listener
   };
 
   const logout = async () => {
-    setLoadingAuth(true);
+    setLoadingAuth(true); // Keep true until onAuthStateChanged confirms logout
     try {
       await signOut(auth);
-      router.push('/login');
+      // onAuthStateChanged will set user to null, clear profile, and set loadingAuth to false.
+      router.push('/login'); // Redirect after signOut initiates
       toast({
         title: 'Logged Out',
         description: 'You have been successfully logged out.',
@@ -237,8 +246,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       toast({
         title: 'Logout Failed',
         description: error.message || 'Could not log out. Please try again.',
-        variant: 'destructive',
       });
+      setLoadingAuth(false); // Explicitly set false on error
     } 
   };
 
@@ -272,7 +281,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       toast({ title: 'Error', description: 'No user profile found to update.', variant: 'destructive' });
       return;
     }
-    setLoadingAuth(true); 
+    // No need to setLoadingAuth(true) here unless it's a very long operation
+    // Optimistic update can be considered for UI responsiveness
     try {
       const profileUpdates: Partial<UserProfile> = {};
       if (updates.name !== undefined) profileUpdates.name = updates.name;
@@ -283,39 +293,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
       
       await updateUserProfileInDBStore(userId, profileUpdates);
       
-      setUserProfile(prev => ({ ...prev!, ...profileUpdates } as UserProfile));
+      // Update local state to reflect changes immediately
+      setUserProfile(prev => {
+        if (!prev) return null; // Should not happen if userId is present
+        return { ...prev, ...profileUpdates };
+      });
       
       toast({ title: 'Profile Updated', description: 'Your profile has been successfully updated.' });
-      router.push('/profile'); 
+      // router.push('/profile'); // No longer needed if we update state and profile page reads from context
     } catch (error: any) {
       console.error("Error updating profile:", error);
       toast({ title: 'Update Failed', description: error.message || 'Could not update profile.', variant: 'destructive' });
-    } finally {
-      setLoadingAuth(false);
     }
   };
-
-  const incrementPersonaQuota = async (amount: number) => {
-    if (!userId || !userProfile) {
-      toast({ title: 'Error', description: 'No user profile found to update quota.', variant: 'destructive' });
-      return;
-    }
-    setLoadingAuth(true);
-    try {
-      const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
-      const newQuota = currentQuota + amount;
-      await updateUserProfileInDBStore(userId, { personaQuota: newQuota });
-      setUserProfile(prev => ({ ...prev!, personaQuota: newQuota } as UserProfile));
-      // Toast is handled by PaywallNotice for successful payment simulation
-    } catch (error: any) {
-      console.error("Error incrementing persona quota:", error);
-      toast({ title: 'Quota Update Failed', description: error.message || 'Could not update persona quota.', variant: 'destructive' });
-      throw error; // Re-throw for PaywallNotice to handle
-    } finally {
-      setLoadingAuth(false);
-    }
-  };
-
 
   return (
     <AuthContext.Provider
@@ -331,7 +321,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         logout,
         resendVerificationEmail,
         updateCurrentProfile,
-        incrementPersonaQuota,
       }}
     >
       {children}
