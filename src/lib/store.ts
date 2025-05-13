@@ -1,3 +1,4 @@
+
 import type { Persona, ChatMessage, UserChatMessage, UserContact, UserProfile } from './types';
 import { db } from './firebase';
 import { 
@@ -13,7 +14,8 @@ import {
   onValue, 
   off,
   orderByKey,
-  limitToLast
+  limitToLast,
+  update,
 } from 'firebase/database';
 
 // Firebase Realtime Database Paths
@@ -24,7 +26,7 @@ const AI_CHAT_MESSAGES_PATH_BASE = 'ai_chat_messages'; // Stores ChatMessage: ai
 const USER_CHAT_MESSAGES_PATH_BASE = 'user_chat_messages'; // Stores UserChatMessage: user_chat_messages/{chatId}/{messageId}
 
 
-// --- User Profile Management (Primarily handled in AuthContext, helpers can be here) ---
+// --- User Profile Management ---
 
 export const getUserProfileById = async (userId: string): Promise<UserProfile | null> => {
   if (!userId) return null;
@@ -37,6 +39,28 @@ export const getUserProfileById = async (userId: string): Promise<UserProfile | 
     return null;
   }
 };
+
+export const updateUserProfileInDB = async (userId: string, updates: Partial<UserProfile>): Promise<void> => {
+  if (!userId) throw new Error("User ID is required to update a profile.");
+  const userRef = ref(db, `${USERS_PATH}/${userId}`);
+  try {
+    // Filter out undefined values to avoid writing them to Firebase,
+    // which could unintentionally delete fields if not handled carefully by rules.
+    const validUpdates: Partial<UserProfile> = {};
+    for (const key in updates) {
+      if (updates[key as keyof UserProfile] !== undefined) {
+        validUpdates[key as keyof UserProfile] = updates[key as keyof UserProfile];
+      }
+    }
+    if (Object.keys(validUpdates).length > 0) {
+      await update(userRef, validUpdates);
+    }
+  } catch (error) {
+    console.error(`Error updating user profile for ${userId}:`, error);
+    throw error;
+  }
+};
+
 
 export const getRegisteredUserByEmailFromDB = async (email: string): Promise<UserProfile | null> => {
   const usersRef = query(ref(db, USERS_PATH), orderByChild('email'), equalTo(email.toLowerCase()));
@@ -85,7 +109,7 @@ export const getRegisteredUserByEmailFromDB = async (email: string): Promise<Use
                   ".read": "auth != null && auth.uid == $uid", 
                   ".write": "auth != null && auth.uid == $uid"
                 },
-                ".read": "auth != null", 
+                ".read": "auth != null", // Required for query by email
                 ".indexOn": ["email"]
               }
             }
@@ -246,7 +270,7 @@ export const getChatDerivedPersona = async (userId: string, derivedFromChatId: s
 
 
 // --- AI Persona Chat Message Management (for ChatInterface.tsx) ---
-export const saveChatMessage = async (userId: string, personaId: string, message: Omit<ChatMessage, 'id'>): Promise<string> => {
+export const saveChatMessage = async (userId: string, personaId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<string> => {
   if (!userId || !personaId) throw new Error("User ID and Persona ID are required.");
   const messagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
   const newMessageRef = push(messagesRef); 
@@ -380,3 +404,5 @@ export const clearUserChatMessages = async (chatId: string): Promise<void> => {
     throw error;
   }
 };
+
+    

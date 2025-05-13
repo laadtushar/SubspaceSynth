@@ -17,6 +17,12 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com', // For Google profile pictures
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
   // Ensure environment variables are available on the client-side if prefixed with NEXT_PUBLIC_
@@ -25,3 +31,5 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+    
