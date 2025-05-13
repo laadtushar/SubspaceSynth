@@ -8,19 +8,41 @@ import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, LogIn, UserPlus, Mail } from 'lucide-react';
+import { Loader2, LogIn, UserPlus, KeyRound } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth'; // Import useAuth
 
-const authFormSchema = z.object({
+const loginSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
   password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
 });
 
-export type AuthFormValues = z.infer<typeof authFormSchema>;
+const signupSchema = z.object({
+  email: z.string().email({ message: 'Invalid email address.' }),
+  password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
+  geminiApiKey: z.string().min(1, { message: 'Gemini API Key is required.' }),
+});
+
+// Base type for form values
+interface BaseAuthFormValues {
+  email: string;
+  password: string;
+}
+
+// Specific type for signup including Gemini API Key
+export interface SignupAuthFormValues extends BaseAuthFormValues {
+  geminiApiKey: string;
+}
+
+// Type for login (Gemini API Key not needed)
+export type LoginAuthFormValues = BaseAuthFormValues;
+
+// Union type for the form hook, default to BaseAuthFormValues
+export type AuthFormValues = SignupAuthFormValues | LoginAuthFormValues;
+
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
@@ -65,13 +87,16 @@ export default function AuthForm({
   const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const { toast } = useToast();
-  const { signInWithGoogle } = useAuth(); // Get signInWithGoogle from context
+  const { signInWithGoogle } = useAuth();
+
+  const currentSchema = mode === 'signup' ? signupSchema : loginSchema;
 
   const form = useForm<AuthFormValues>({
-    resolver: zodResolver(authFormSchema),
+    resolver: zodResolver(currentSchema),
     defaultValues: {
       email: '',
       password: '',
+      ...(mode === 'signup' && { geminiApiKey: '' }),
     },
   });
 
@@ -97,8 +122,7 @@ export default function AuthForm({
       await signInWithGoogle();
       // Success navigation is handled by the AuthContext
     } catch (error: any) {
-      // Error toast is handled by AuthContext, but we can add specific ones here if needed
-      // For now, AuthContext's error handling is sufficient.
+      // Error toast is handled by AuthContext
     } finally {
       setIsGoogleLoading(false);
     }
@@ -143,6 +167,26 @@ export default function AuthForm({
                   </FormItem>
                 )}
               />
+              {mode === 'signup' && (
+                <FormField
+                  control={form.control}
+                  name="geminiApiKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-1">
+                        <KeyRound className="h-4 w-4" /> Gemini API Key
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="Enter your Gemini API Key" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        This key is required for AI features. It will be stored securely.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
                <Button type="submit" className="w-full" disabled={isEmailLoading || isGoogleLoading}>
                 {isEmailLoading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -188,5 +232,3 @@ export default function AuthForm({
     </div>
   );
 }
-
-    

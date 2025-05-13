@@ -3,6 +3,7 @@
 
 import Link from 'next/link';
 import AuthForm from '@/components/auth/AuthForm';
+import type { SignupAuthFormValues, AuthFormValues } from '@/components/auth/AuthForm';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
@@ -26,10 +27,21 @@ export default function SignupPage() {
     );
   }
 
+  const handleSignupSubmit = async (values: AuthFormValues) => {
+    // Type guard to ensure values are of SignupAuthFormValues type
+    if ('geminiApiKey' in values) {
+      await signupWithEmail(values as SignupAuthFormValues);
+    } else {
+      // This case should ideally not happen if form validation is correct for signup mode
+      console.error("Gemini API Key missing in signup form values");
+      throw new Error("Gemini API Key is required for signup.");
+    }
+  };
+
   return (
     <AuthForm
       mode="signup"
-      onSubmit={signupWithEmail}
+      onSubmit={handleSignupSubmit}
       title="Create an Account"
       description="Sign up to start creating your AI personas."
       submitButtonText="Sign Up"

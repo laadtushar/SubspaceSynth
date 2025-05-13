@@ -2,16 +2,15 @@
 {
   "rules": {
     "users": {
-      ".read": "auth != null", // Allow authenticated users to query the users list
+      ".read": "auth != null",
       "$uid": {
-        // Individual user profile read is covered by parent, write is owner-only
         ".write": "auth != null && auth.uid === $uid",
         "email": { ".validate": "newData.isString() && newData.val().length > 0" },
         "name": { ".validate": "newData.isString() && newData.val().length > 0" },
         "avatarUrl": { ".validate": "newData.isString()" },
         "lastLogin": { ".validate": "newData.isString()" },
         "createdAt": { ".validate": "newData.isString()" },
-        "geminiApiKey": { ".validate": "newData.isString()" },
+        "geminiApiKey": { ".validate": "newData.isString()" }, // Can be empty string
         "personaQuota": { ".validate": "newData.isNumber() && newData.val() >= 0" },
         "$other": { ".validate": false }
       },
@@ -47,7 +46,7 @@
           "mbti": { ".validate": "newData.isString()" },
           "age": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 120" },
           "gender": { ".validate": "newData.isString()" },
-          "personalityInsights": { ".validate": "newData.hasChildren() || newData.isString() || newData.val() === null" },
+          "personalityInsights": { ".validate": "newData.hasChildren() || newData.isString() || newData.val() === null" }, 
           "derivedFromChatId": { ".validate": "newData.isString()" },
           "derivedRepresentingUserId": { ".validate": "newData.isString()" },
           "sourceChatMessagesCount": { ".validate": "newData.isNumber()" },
@@ -60,7 +59,7 @@
       "$userId": {
         "$personaId": {
           ".read": "auth != null && auth.uid === $userId",
-          ".write": "auth != null && auth.uid === $userId",
+          ".write": "auth != null && auth.uid === $userId", 
           "$messageId": {
             ".validate": "newData.hasChildren(['sender', 'text', 'timestamp']) && (newData.child('sender').val() === 'user' || newData.child('sender').val() === 'ai') && newData.child('text').isString() && newData.child('text').val().length > 0 && (newData.child('timestamp').val() === 'timestamp' || newData.child('timestamp').isNumber() || newData.child('timestamp').isString()) && (!newData.hasChild('context') || newData.child('context').isString())",
             "sender": { ".validate": "newData.val() === 'user' || newData.val() === 'ai'" },
@@ -74,7 +73,7 @@
       }
     },
     "user_chat_messages": {
-      "$chatId": {
+      "$chatId": { 
         ".read": "auth != null && ($chatId.beginsWith(auth.uid + '_') || $chatId.endsWith('_' + auth.uid))",
         ".write": "auth != null && ($chatId.beginsWith(auth.uid + '_') || $chatId.endsWith('_' + auth.uid))",
         "$messageId": {

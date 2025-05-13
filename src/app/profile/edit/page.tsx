@@ -27,8 +27,6 @@ export default function EditProfilePage() {
   }
 
   if (!user || !userProfile) {
-    // This case should ideally be handled by the redirect in useEffect,
-    // but as a fallback or if there's a delay in profile loading.
     return (
       <div className="flex flex-col justify-center items-center h-[calc(100vh-var(--header-height,0px)-2rem)] text-center p-4">
         <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
@@ -45,5 +43,3 @@ export default function EditProfilePage() {
     </div>
   );
 }
-
-    

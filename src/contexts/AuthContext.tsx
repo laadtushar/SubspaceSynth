@@ -17,7 +17,7 @@ import {
 import { auth, db } from '@/lib/firebase';
 import { ref, set, get, update } from 'firebase/database';
 import type { UserProfile } from '@/lib/types';
-import type { AuthFormValues } from '@/components/auth/AuthForm';
+import type { AuthFormValues, SignupAuthFormValues, LoginAuthFormValues } from '@/components/auth/AuthForm';
 import { USERS_PATH, updateUserProfileInDB as updateUserProfileInDBStore } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
 import { FREE_PERSONA_LIMIT } from '@/lib/constants';
@@ -28,14 +28,12 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   isEmailVerified: boolean;
   loadingAuth: boolean;
-  loginWithEmail: (values: AuthFormValues) => Promise<void>;
-  signupWithEmail: (values: AuthFormValues) => Promise<void>;
+  loginWithEmail: (values: LoginAuthFormValues) => Promise<void>;
+  signupWithEmail: (values: SignupAuthFormValues) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
   updateCurrentProfile: (updates: { name?: string; avatarUrl?: string; geminiApiKey?: string }) => Promise<void>;
-  // incrementPersonaQuota is removed as the server action now handles this for simulation,
-  // and a real webhook would update the DB directly, which this context would then reflect.
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -50,7 +48,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const { toast } = useToast();
 
-  const fetchOrCreateUserProfile = useCallback(async (firebaseUser: FirebaseUser | null) => {
+  const fetchOrCreateUserProfile = useCallback(async (firebaseUser: FirebaseUser | null, initialGeminiApiKey?: string) => {
     if (!firebaseUser) {
       setUserProfile(null);
       setUserId(null);
@@ -77,19 +75,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
           name: existingProfile.name || firebaseUser.displayName || emailNamePart,
           avatarUrl: existingProfile.avatarUrl || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
           lastLogin: now,
-          geminiApiKey: existingProfile.geminiApiKey !== undefined ? existingProfile.geminiApiKey : '', // Ensure geminiApiKey is always defined
+          // geminiApiKey is updated if provided (e.g., during signup), otherwise preserve existing or set to empty
+          geminiApiKey: initialGeminiApiKey !== undefined ? initialGeminiApiKey : (existingProfile.geminiApiKey !== undefined ? existingProfile.geminiApiKey : ''),
           personaQuota: existingProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : existingProfile.personaQuota,
         };
-        // Ensure all fields, including new ones, are updated if user logs in
         await update(userNodeRef, { 
           lastLogin: now, 
           email: profileData.email, 
           name: profileData.name,
           avatarUrl: profileData.avatarUrl,
-          geminiApiKey: profileData.geminiApiKey,
+          geminiApiKey: profileData.geminiApiKey, // ensure it's written
           personaQuota: profileData.personaQuota,
         });
       } else {
+        // New user profile
         profileData = {
           id: firebaseUser.uid,
           email: firebaseUser.email || '',
@@ -97,7 +96,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           avatarUrl: firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
           createdAt: now,
           lastLogin: now,
-          geminiApiKey: '', 
+          geminiApiKey: initialGeminiApiKey || '', // Use provided key or empty string
           personaQuota: FREE_PERSONA_LIMIT,
         };
         await set(userNodeRef, profileData);
@@ -111,7 +110,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         description: `Failed to load or create user profile: ${error.message}`,
         variant: 'destructive',
       });
-      // Fallback profile ensures app doesn't break if DB write fails but auth succeeds
       const fallbackProfile: UserProfile = {
         id: firebaseUser.uid,
         email: firebaseUser.email || '',
@@ -119,7 +117,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         createdAt: new Date().toISOString(), 
         lastLogin: new Date().toISOString(),
         avatarUrl: firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
-        geminiApiKey: '',
+        geminiApiKey: initialGeminiApiKey || '',
         personaQuota: FREE_PERSONA_LIMIT,
       };
       setUserProfile(fallbackProfile);
@@ -132,7 +130,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        await fetchOrCreateUserProfile(firebaseUser); // This now sets userProfile
+        // For existing sessions, initialGeminiApiKey will be undefined, so it won't overwrite
+        await fetchOrCreateUserProfile(firebaseUser); 
       } else {
         setUser(null);
         setUserId(null);
@@ -145,11 +144,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [fetchOrCreateUserProfile]);
 
 
-  const signupWithEmail = async (values: AuthFormValues) => {
+  const signupWithEmail = async (values: SignupAuthFormValues) => {
     setLoadingAuth(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-      // fetchOrCreateUserProfile will be called by onAuthStateChanged listener
+      // Now call fetchOrCreateUserProfile with the geminiApiKey
+      await fetchOrCreateUserProfile(userCredential.user, values.geminiApiKey);
       
       try {
         await sendEmailVerification(userCredential.user);
@@ -181,14 +181,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error; 
     }
-    // setLoadingAuth(false) is handled by onAuthStateChanged listener ensuring profile is loaded
   };
 
-  const loginWithEmail = async (values: AuthFormValues) => {
+  const loginWithEmail = async (values: LoginAuthFormValues) => {
     setLoadingAuth(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
-      // fetchOrCreateUserProfile will be called by onAuthStateChanged listener
+      // fetchOrCreateUserProfile (called by onAuthStateChanged) will handle profile update for login
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
@@ -204,15 +203,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error; 
     }
-    // setLoadingAuth(false) is handled by onAuthStateChanged listener
   };
 
   const signInWithGoogle = async () => {
     setLoadingAuth(true);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      // fetchOrCreateUserProfile will be called by onAuthStateChanged listener
+      const userCredential = await signInWithPopup(auth, provider);
+      // fetchOrCreateUserProfile (called by onAuthStateChanged) will handle profile creation/update.
+      // For Google Sign-In, geminiApiKey will be initially empty if it's a new user.
+      // They will need to add it via profile settings.
+      await fetchOrCreateUserProfile(userCredential.user); // Explicitly call to ensure profile is set if new
       toast({
         title: 'Signed In with Google',
         description: 'Welcome!',
@@ -228,15 +229,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error;
     }
-    // setLoadingAuth(false) is handled by onAuthStateChanged listener
   };
 
   const logout = async () => {
-    setLoadingAuth(true); // Keep true until onAuthStateChanged confirms logout
+    setLoadingAuth(true);
     try {
       await signOut(auth);
-      // onAuthStateChanged will set user to null, clear profile, and set loadingAuth to false.
-      router.push('/login'); // Redirect after signOut initiates
+      router.push('/login'); 
       toast({
         title: 'Logged Out',
         description: 'You have been successfully logged out.',
@@ -247,7 +246,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         title: 'Logout Failed',
         description: error.message || 'Could not log out. Please try again.',
       });
-      setLoadingAuth(false); // Explicitly set false on error
+      setLoadingAuth(false); 
     } 
   };
 
@@ -281,8 +280,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       toast({ title: 'Error', description: 'No user profile found to update.', variant: 'destructive' });
       return;
     }
-    // No need to setLoadingAuth(true) here unless it's a very long operation
-    // Optimistic update can be considered for UI responsiveness
     try {
       const profileUpdates: Partial<UserProfile> = {};
       if (updates.name !== undefined) profileUpdates.name = updates.name;
@@ -293,14 +290,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       
       await updateUserProfileInDBStore(userId, profileUpdates);
       
-      // Update local state to reflect changes immediately
       setUserProfile(prev => {
-        if (!prev) return null; // Should not happen if userId is present
+        if (!prev) return null;
         return { ...prev, ...profileUpdates };
       });
       
       toast({ title: 'Profile Updated', description: 'Your profile has been successfully updated.' });
-      // router.push('/profile'); // No longer needed if we update state and profile page reads from context
     } catch (error: any) {
       console.error("Error updating profile:", error);
       toast({ title: 'Update Failed', description: error.message || 'Could not update profile.', variant: 'destructive' });
@@ -327,3 +322,4 @@ export function AuthProvider({ children }: PropsWithChildren) {
     </AuthContext.Provider>
   );
 }
+
