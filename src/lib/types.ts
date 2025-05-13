@@ -38,6 +38,7 @@ export interface Persona {
   personaDescription?: string;
   createdAt: string; // ISO date string
   avatarUrl?: string; 
+  category?: string; // New field for grouping/folders
 
   originType: 'user-created' | 'chat-derived';
 
@@ -96,3 +97,4 @@ export interface ExportedPersonaData {
   chatMessagesWithAI?: ChatMessage[]; // Messages from AI chat interface
   // Seed chat history is part of personaDetails.chatHistory if originType is 'user-created'
 }
+

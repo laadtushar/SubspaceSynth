@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -27,6 +28,7 @@ const personaFormSchema = z.object({
   mbti: z.enum(MBTI_TYPES).optional(),
   age: z.coerce.number().int().positive().min(1).max(120).optional(),
   gender: z.enum(GENDERS).optional(),
+  category: z.string().max(50, {message: "Category name cannot exceed 50 characters."}).optional().or(z.literal('')),
 });
 
 type PersonaFormValues = z.infer<typeof personaFormSchema>;
@@ -42,6 +44,7 @@ export default function CreatePersonaForm() {
     defaultValues: {
       name: '',
       chatHistory: '',
+      category: '',
     },
   });
 
@@ -68,6 +71,7 @@ export default function CreatePersonaForm() {
         mbti: data.mbti,
         age: data.age,
         gender: data.gender,
+        category: data.category || undefined, // Store as undefined if empty string
         personaDescription: aiResponse.personaDescription,
         createdAt: new Date().toISOString(),
         avatarUrl: `https://picsum.photos/seed/${data.name + Date.now()}/200/200`
@@ -139,6 +143,24 @@ export default function CreatePersonaForm() {
                 </FormItem>
               )}
             />
+            
+            <FormField
+              control={form.control}
+              name="category"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Category (Optional)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="E.g., Work, Friends, Creative Writing" {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    Group your personas by assigning them to a category.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <FormField
@@ -230,3 +252,4 @@ export default function CreatePersonaForm() {
     </Card>
   );
 }
+

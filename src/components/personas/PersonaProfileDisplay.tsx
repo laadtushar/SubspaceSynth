@@ -1,9 +1,15 @@
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { Bot, BarChart2, Loader2, Sparkles, BrainCircuit, Zap, Download, MessageCircleQuestion, FileText } from 'lucide-react';
+import { Bot, BarChart2, Loader2, Sparkles, BrainCircuit, Zap, Download, MessageCircleQuestion, FileText, Edit } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+
 import type { Persona, ChatMessage, ExportedPersonaData, AnalyzePersonaInsightsOutput, LinguisticFeaturesSchema, InteractionStatsSchema } from '@/lib/types';
+import { MBTI_TYPES, GENDERS } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +33,8 @@ import {
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart as RechartsBarChart, XAxis, YAxis, CartesianGrid, Bar } from 'recharts';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
@@ -40,12 +48,22 @@ const isStructuredInsights = (insights: any): insights is AnalyzePersonaInsights
   return typeof insights === 'object' && insights !== null && 'summary' in insights && 'sentiment' in insights;
 };
 
+const editPersonaFormSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters.").max(50),
+  mbti: z.enum(MBTI_TYPES).optional().or(z.literal('')),
+  age: z.coerce.number().int().positive().min(1).max(120).optional(),
+  gender: z.enum(GENDERS).optional().or(z.literal('')),
+  category: z.string().max(50).optional().or(z.literal('')),
+});
+type EditPersonaFormValues = z.infer<typeof editPersonaFormSchema>;
+
 
 export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: PersonaProfileDisplayProps) {
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isDevelopingPersonality, setIsDevelopingPersonality] = useState(false);
   const [developmentPrompts, setDevelopmentPrompts] = useState('');
   const [isDevelopDialogActive, setIsDevelopDialogActive] = useState(false); 
+  const [isEditDialogActive, setIsEditDialogActive] = useState(false);
   const [userQuestion, setUserQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState('');
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
@@ -54,6 +72,30 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   const { userId } = useAuth();
 
   const isChatDerived = persona.originType === 'chat-derived';
+
+  const editForm = useForm<EditPersonaFormValues>({
+    resolver: zodResolver(editPersonaFormSchema),
+    defaultValues: {
+      name: persona.name,
+      mbti: persona.mbti || '',
+      age: persona.age,
+      gender: persona.gender || '',
+      category: persona.category || '',
+    },
+  });
+
+  useEffect(() => {
+    if (persona) {
+      editForm.reset({
+        name: persona.name,
+        mbti: persona.mbti || '',
+        age: persona.age,
+        gender: persona.gender || '',
+        category: persona.category || '',
+      });
+    }
+  }, [persona, editForm, isEditDialogActive]);
+
 
   const handleAnalyzeInsights = async () => {
     if (!userId) {
@@ -73,14 +115,13 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
         });
         return;
     }
-    // For chat-derived, analysis happens based on UserChatInterface or other mechanisms, not this button.
     if (persona.originType === 'chat-derived') {
          toast({
             title: 'Analysis Context',
             description: 'Insights for chat-derived personas are typically generated from the source chat. This button primarily re-analyzes seed data for user-created personas.',
             variant: 'default'
         });
-        return; // Or proceed if we want to allow re-analysis of its description
+        return; 
     }
 
     setIsLoadingInsights(true);
@@ -90,7 +131,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
         mbtiType: persona.mbti,
         age: persona.age,
         gender: persona.gender,
-        analysisContext: 'seed-data', // Explicitly set context
+        analysisContext: 'seed-data', 
       });
 
       const updatedPersona = { ...persona, personalityInsights: insightsResponse };
@@ -156,6 +197,30 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
     }
   };
 
+  const handleEditPersonaDetails = async (data: EditPersonaFormValues) => {
+    if (!userId) {
+      toast({ title: 'Error', description: 'User not logged in.', variant: 'destructive' });
+      return;
+    }
+    try {
+      const updatedPersona: Persona = {
+        ...persona,
+        name: data.name,
+        mbti: data.mbti || undefined,
+        age: data.age || undefined,
+        gender: data.gender || undefined,
+        category: data.category || undefined,
+      };
+      await savePersonaToDB(userId, updatedPersona);
+      onPersonaUpdate(updatedPersona);
+      toast({ title: 'Persona Updated', description: `${persona.name}'s details have been updated.` });
+      setIsEditDialogActive(false);
+    } catch (error) {
+      console.error('Failed to update persona details:', error);
+      toast({ title: 'Error', description: 'Could not update persona details.', variant: 'destructive' });
+    }
+  };
+
   const handleAskQuestion = async (question?: string) => {
     const finalQuestion = question || userQuestion;
     if (!finalQuestion.trim()) {
@@ -174,7 +239,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
             question: finalQuestion,
         });
         setAiAnswer(response.answer);
-        if(!question) setUserQuestion(''); // Clear input if not a suggested q
+        if(!question) setUserQuestion(''); 
     } catch (error) {
         console.error("Error asking question about persona:", error);
         toast({ title: 'Error', description: 'Could not get an answer from the AI.', variant: 'destructive'});
@@ -233,15 +298,13 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
     `What are ${persona.name}'s key personality traits?`,
     `How does ${persona.name} typically communicate?`,
     `What might motivate ${persona.name}?`,
-    `What are some potential strengths of ${persona.name}?`,
-    `What could be a challenge for ${persona.name}?`
   ];
 
 
   return (
     <Card className="w-full h-full flex flex-col shadow-lg">
       <CardHeader className="p-4 border-b">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <Image 
             src={persona.avatarUrl || `https://picsum.photos/seed/${persona.id}/64/64`} 
             alt={persona.name} 
@@ -253,6 +316,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
           <div>
             <CardTitle className="text-xl font-bold">{persona.name}</CardTitle>
             {isChatDerived && <Badge variant="outline" className="mt-1">Chat-Derived Persona</Badge>}
+             {persona.category && <Badge variant="secondary" className="mt-1">Category: {persona.category}</Badge>}
             <div className="flex flex-wrap gap-1 mt-1">
               {persona.mbti && <Badge variant="outline">MBTI: {persona.mbti}</Badge>}
               {persona.age && <Badge variant="outline">Age: {persona.age}</Badge>}
@@ -260,15 +324,111 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
             </div>
           </div>
         </div>
-        <div className="flex justify-end mt-2">
+        <div className="flex justify-end gap-2 mt-2">
+            <Dialog open={isEditDialogActive} onOpenChange={setIsEditDialogActive}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" disabled={!userId || isChatDerived}>
+                  <Edit className="h-4 w-4 mr-1" /> Edit Details
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[525px]">
+                <DialogHeader>
+                  <DialogTitle>Edit {persona.name}'s Details</DialogTitle>
+                  <DialogDescription>Update the basic information for this persona.</DialogDescription>
+                </DialogHeader>
+                <Form {...editForm}>
+                  <form onSubmit={editForm.handleSubmit(handleEditPersonaDetails)} className="space-y-4 py-4">
+                    <FormField
+                      control={editForm.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Persona Name</FormLabel>
+                          <FormControl><Input {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={editForm.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Category</FormLabel>
+                          <FormControl><Input placeholder="Uncategorized" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                       <FormField
+                          control={editForm.control}
+                          name="mbti"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>MBTI Type</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ''}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Select MBTI" /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                  <SelectItem value=""><em>None</em></SelectItem>
+                                  {MBTI_TYPES.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={editForm.control}
+                          name="age"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Age</FormLabel>
+                              <FormControl>
+                                <Input type="number" placeholder="e.g. 30" {...field} value={field.value ?? ''} 
+                                onChange={e => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={editForm.control}
+                          name="gender"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Gender</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value || ''}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Select Gender" /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                  <SelectItem value=""><em>None</em></SelectItem>
+                                  {GENDERS.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                    </div>
+                    <DialogFooter>
+                      <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                      <Button type="submit" disabled={editForm.formState.isSubmitting}>
+                        {editForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+
             <Button variant="outline" size="sm" onClick={handleExportPersona} disabled={!userId}>
-                <Download className="h-4 w-4 mr-2" /> Export Persona
+                <Download className="h-4 w-4 mr-2" /> Export
             </Button>
         </div>
       </CardHeader>
       <ScrollArea className="flex-grow">
         <CardContent className="p-4 space-y-6">
-          <Accordion type="single" collapsible className="w-full">
+          <Accordion type="single" collapsible className="w-full" defaultValue="persona-description">
             {/* AI Persona Description Section */}
             <AccordionItem value="persona-description">
               <AccordionTrigger>
@@ -567,3 +727,4 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
     </Card>
   );
 }
+
