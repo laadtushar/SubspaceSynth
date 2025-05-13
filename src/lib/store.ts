@@ -1,4 +1,3 @@
-
 import type { Persona, ChatMessage, UserChatMessage, UserContact, UserProfile } from './types';
 import { db } from './firebase';
 import { 
@@ -40,9 +39,6 @@ export const getUserProfileById = async (userId: string): Promise<UserProfile | 
 };
 
 export const getRegisteredUserByEmailFromDB = async (email: string): Promise<UserProfile | null> => {
-  // Firebase Realtime Database doesn't support querying by arbitrary fields like email directly without specific indexing rules.
-  // A common approach is to fetch all users and filter, or create a separate index (e.g., emailToUid map).
-  // For simplicity, if your rules allow reading the whole /users path:
   const usersRef = query(ref(db, USERS_PATH), orderByChild('email'), equalTo(email.toLowerCase()));
   try {
     const snapshot = await get(usersRef);
@@ -53,15 +49,50 @@ export const getRegisteredUserByEmailFromDB = async (email: string): Promise<Use
       return usersData[userId] as UserProfile;
     }
     return null;
-  } catch (error) {
-    console.error(`Error fetching user by email ${email}:`, error);
-     if ((error as any).code === 'PERMISSION_DENIED') {
+  } catch (error: any) {
+    console.error(`Error fetching user by email ${email}:`, error.message);
+
+    // Specific check for "Index not defined" error
+    if (error.message && typeof error.message === 'string' && error.message.includes("Index not defined")) {
+      console.error(
+        "\n===================================================================================\n" +
+        "IMPORTANT: Firebase Realtime Database Configuration Required\n" +
+        "===================================================================================\n" +
+        "The query to find a user by email failed because an index is not defined for the 'email' field on the '/users' path.\n\n" +
+        "To fix this, you MUST update your Firebase Realtime Database rules.\n" +
+        "Add the following .indexOn rule to your '/users' path in the Firebase console:\n\n" +
+        "{\n" +
+        '  "rules": {\n' +
+        '    "users": {\n' +
+        '      ".indexOn": ["email"]\n' +
+        '      // ... any other rules you have for /users ...\n' +
+        '    }\n' +
+        '    // ... other top-level rules ...\n' +
+        '  }\n' +
+        "}\n\n" +
+        "After adding this rule, publish your changes in the Firebase console.\n" +
+        "Refer to Firebase documentation on indexing data: https://firebase.google.com/docs/database/security/indexing-data\n" +
+        "===================================================================================\n"
+      );
+    } else if (error.code === 'PERMISSION_DENIED') {
         console.error(
           "Firebase Realtime Database permission denied for querying users by email. " +
           "Ensure your rules allow reading the 'users' path or specific indexes. " +
-          "For querying by email, you'd need: rules > users > .indexOn: ['email']"
+          "For querying by email, you'd typically need rules like: \n" +
+          `{
+            "rules": {
+              "users": {
+                "$uid": {
+                  ".read": "auth != null && auth.uid == $uid", 
+                  ".write": "auth != null && auth.uid == $uid"
+                },
+                ".read": "auth != null", 
+                ".indexOn": ["email"]
+              }
+            }
+          }`
         );
-      }
+    }
     return null;
   }
 };
@@ -74,7 +105,7 @@ export const addContactByEmail = async (currentUserId: string, email: string): P
 
   const contactUserToAdd = await getRegisteredUserByEmailFromDB(email);
   if (!contactUserToAdd) {
-    throw new Error('User with that email not found in the system.');
+    throw new Error('User with that email not found in the system. They may need to log in once to be registered, or the email is incorrect.');
   }
   if (contactUserToAdd.id === currentUserId) {
     throw new Error('You cannot add yourself as a contact.');
@@ -324,3 +355,4 @@ export const clearUserChatMessages = async (chatId: string): Promise<void> => {
     throw error;
   }
 };
+
