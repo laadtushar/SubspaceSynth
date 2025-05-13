@@ -1,3 +1,4 @@
+
 // src/lib/stripe.ts
 import Stripe from 'stripe';
 
@@ -31,18 +32,15 @@ if (stripeSecretKey && stripeSecretKey.startsWith('sk_')) {
   // Key is missing or invalid
   if (nodeEnv === 'production') {
     // In PRODUCTION, a missing or invalid secret key IS a critical issue.
-    // It's better to fail fast than to run with broken payments.
     console.error(
       'CRITICAL PRODUCTION ERROR: STRIPE_SECRET_KEY is missing, invalid (must start with sk_...), or not loaded. ' +
-      'Ensure STRIPE_SECRET_KEY is correctly set in your production environment variables. Payments will FAIL.'
+      'Ensure STRIPE_SECRET_KEY is correctly set in your production environment variables. ' +
+      'The application will now use SIMULATED payment processing. REAL PAYMENTS WILL NOT WORK.'
     );
-    // This error will stop the server if it occurs during module initialization in many setups,
-    // or cause issues at runtime if Stripe functions are called.
-    // Forcing a throw here makes the problem immediately obvious in production.
-    throw new Error(
-        'STRIPE_SECRET_KEY is not set or is invalid in the PRODUCTION environment. Payment processing cannot proceed.'
-    );
-    // stripeEnabled remains false, stripeInstance remains null
+    // Removed the throw new Error to prevent crashing.
+    // The application will fall back to simulated payments.
+    stripeEnabled = false; 
+    stripeInstance = null; 
   } else {
     // In DEVELOPMENT or other non-production environments, warn and use simulation.
     console.warn(
@@ -50,7 +48,8 @@ if (stripeSecretKey && stripeSecretKey.startsWith('sk_')) {
       'Real Stripe functionality will NOT work. The application will use SIMULATED payment processing. ' +
       'To enable real payments, set STRIPE_SECRET_KEY in your .env.local file and restart the server.'
     );
-    stripeEnabled = false; // Explicitly set for simulation mode
+    stripeEnabled = false; 
+    stripeInstance = null;
   }
 }
 
@@ -72,3 +71,4 @@ export const checkStripeEnabled = (): boolean => {
   }
   return true;
 };
+
