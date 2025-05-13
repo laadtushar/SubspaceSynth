@@ -7,10 +7,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Loader2, LogOut, UserCircle2, Edit3, MailWarning, ShieldCheck } from 'lucide-react';
+import { Loader2, LogOut, UserCircle2, Edit3, MailWarning, ShieldCheck, KeyRound, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Image from 'next/image'; 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { FREE_PERSONA_LIMIT } from '@/lib/constants';
 
 export default function ProfilePage() {
   const { user, userProfile, loadingAuth, logout, isEmailVerified, resendVerificationEmail } = useAuth();
@@ -62,7 +63,7 @@ export default function ProfilePage() {
             </AvatarFallback>
           </Avatar>
           <CardTitle className="text-2xl">{userProfile.name || 'User Profile'}</CardTitle>
-          <CardDescription>Manage your account settings.</CardDescription>
+          <CardDescription>Manage your account settings and preferences.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!isEmailVerified && user?.providerData.some(provider => provider.providerId === 'password') && (
@@ -95,6 +96,18 @@ export default function ProfilePage() {
             <p className="text-sm font-medium text-muted-foreground">Name</p>
             <p className="text-lg">{userProfile.name}</p>
           </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground flex items-center gap-1"><KeyRound className="h-4 w-4" /> Gemini API Key</p>
+            <p className="text-base text-muted-foreground">
+              {userProfile.geminiApiKey ? '•••••••••••••••••• (Set)' : 'Not Set'}
+            </p>
+          </div>
+           <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground flex items-center gap-1"><Users className="h-4 w-4" /> Persona Quota</p>
+            <p className="text-base">
+              {userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota} personas
+            </p>
+          </div>
            <div className="space-y-1">
             <p className="text-sm font-medium text-muted-foreground">Joined</p>
             <p className="text-sm">{new Date(userProfile.createdAt).toLocaleDateString()}</p>
@@ -119,5 +132,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-
-    

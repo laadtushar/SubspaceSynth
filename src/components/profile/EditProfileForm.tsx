@@ -12,12 +12,13 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Save, UserCircle } from 'lucide-react';
+import { Loader2, Save, UserCircle, KeyRound } from 'lucide-react';
 import type { UserProfile } from '@/lib/types';
 
 const editProfileSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }).max(50, "Name must be 50 characters or less."),
   avatarUrl: z.string().url({ message: "Please enter a valid URL for your avatar." }).optional().or(z.literal('')),
+  geminiApiKey: z.string().optional().or(z.literal('')),
 });
 
 type EditProfileFormValues = z.infer<typeof editProfileSchema>;
@@ -36,6 +37,7 @@ export default function EditProfileForm({ userProfile }: EditProfileFormProps) {
     defaultValues: {
       name: userProfile?.name || '',
       avatarUrl: userProfile?.avatarUrl || '',
+      geminiApiKey: userProfile?.geminiApiKey || '',
     },
   });
 
@@ -44,6 +46,7 @@ export default function EditProfileForm({ userProfile }: EditProfileFormProps) {
       form.reset({
         name: userProfile.name || '',
         avatarUrl: userProfile.avatarUrl || '',
+        geminiApiKey: userProfile.geminiApiKey || '',
       });
     }
   }, [userProfile, form]);
@@ -51,15 +54,13 @@ export default function EditProfileForm({ userProfile }: EditProfileFormProps) {
   const handleFormSubmit = async (values: EditProfileFormValues) => {
     setIsLoading(true);
     try {
-      // If avatarUrl is empty string, pass it as such. AuthContext will handle it.
       await updateCurrentProfile({ 
         name: values.name, 
-        avatarUrl: values.avatarUrl 
+        avatarUrl: values.avatarUrl,
+        geminiApiKey: values.geminiApiKey,
       });
-      // Toast and navigation are handled by updateCurrentProfile in AuthContext
     } catch (error: any) {
-      // Error toast is handled by AuthContext, but can add specific here if needed.
-      // For now, AuthContext's error handling is sufficient.
+      // Error toast handled by AuthContext
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +73,7 @@ export default function EditProfileForm({ userProfile }: EditProfileFormProps) {
             <UserCircle className="h-8 w-8 text-primary" />
             <CardTitle className="text-2xl font-bold">Edit Your Profile</CardTitle>
         </div>
-        <CardDescription>Update your display name and avatar.</CardDescription>
+        <CardDescription>Update your display name, avatar, and API settings.</CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handleFormSubmit)}>
@@ -106,6 +107,25 @@ export default function EditProfileForm({ userProfile }: EditProfileFormProps) {
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="geminiApiKey"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1">
+                    <KeyRound className="h-4 w-4" /> Gemini API Key (Optional)
+                  </FormLabel>
+                  <FormControl>
+                    <Input type="password" placeholder="Enter your Gemini API Key" {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    Provide your own Google AI Gemini API key. This key will be used for generating AI responses. 
+                    (Note: For this demo, API keys are stored directly. In a production environment, ensure robust encryption and secure management practices.)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full" disabled={isLoading}>
@@ -122,5 +142,3 @@ export default function EditProfileForm({ userProfile }: EditProfileFormProps) {
     </Card>
   );
 }
-
-    

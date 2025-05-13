@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { Send, Loader2, Trash2, Bot, RefreshCw } from 'lucide-react';
 import type { UserProfile, UserChatMessage, Persona as PersonaType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { useAuth } from '@/hooks/useAuth';
 import { 
   getUserChatMessages, 
@@ -20,10 +22,11 @@ import {
   getChatDerivedPersona,
   savePersona,
   getPersonaById,
+  getPersonasCount, // Import getPersonasCount
 } from '@/lib/store';
 import { createPersonaFromChat } from '@/ai/flows/create-persona-from-chat';
 import { formatDistanceToNow } from 'date-fns';
-import ChatInterface from './ChatInterface'; // Re-use for practice mode
+import ChatInterface from './ChatInterface'; 
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
@@ -32,6 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { FREE_PERSONA_LIMIT } from '@/lib/constants';
 
 interface UserChatInterfaceProps {
   contactUser: UserProfile;
@@ -49,7 +53,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   const [chatDerivedPersona, setChatDerivedPersona] = useState<PersonaType | null>(null);
   
   const { toast } = useToast();
-  const { userId } = useAuth(); // Should match currentUser.id
+  const { userId, userProfile } = useAuth(); 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
   const chatId = currentUser?.id && contactUser?.id ? generateUserChatId(currentUser.id, contactUser.id) : null;
@@ -85,12 +89,38 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   }, [messages, isPracticeMode]);
 
   const updateOrCreateChatDerivedPersona = useCallback(async () => {
-    if (!userId || !chatId) return;
+    if (!userId || !chatId || !userProfile) { // Ensure userProfile is available
+        toast({ title: "Error", description: "User profile not loaded. Please try again.", variant: "destructive" });
+        return;
+    }
     
     const contactMessagesFromState = messages.filter(msg => msg.senderUserId === contactUser.id);
     if (contactMessagesFromState.length === 0) {
         toast({ title: "Info", description: `No messages from ${contactUser.name} to create/update persona.`});
         return;
+    }
+
+    const existingPersona = await getChatDerivedPersona(userId, chatId, contactUser.id);
+
+    // Check quota ONLY IF creating a NEW persona
+    if (!existingPersona) {
+      const currentPersonasCount = await getPersonasCount(userId);
+      const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
+      if (currentPersonasCount >= currentQuota) {
+        toast({
+          title: "Persona Limit Reached",
+          description: `You have ${currentPersonasCount}/${currentQuota} personas. Please upgrade to create more chat-derived personas.`,
+          variant: "destructive",
+          duration: 7000,
+          action: (
+            <Link href="/personas/new" legacyBehavior>
+              <ToastAction altText="Upgrade Plan">Upgrade</ToastAction>
+            </Link>
+          )
+        });
+        setIsGeneratingPersona(false);
+        return; 
+      }
     }
 
     setIsGeneratingPersona(true);
@@ -99,16 +129,32 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
       const aiResponse = await createPersonaFromChat({ chatHistory: chatHistoryForPersona });
 
       let personaToSave: PersonaType;
-      const existingPersona = await getChatDerivedPersona(userId, chatId, contactUser.id);
+      // Re-fetch existingPersona in case it was created by another call while this one was in progress
+      const currentExistingPersona = await getChatDerivedPersona(userId, chatId, contactUser.id);
 
-      if (existingPersona) {
+
+      if (currentExistingPersona) {
         personaToSave = {
-          ...existingPersona,
+          ...currentExistingPersona,
           personaDescription: aiResponse.personaDescription,
           sourceChatMessagesCount: contactMessagesFromState.length,
-          createdAt: existingPersona.createdAt, // Keep original creation, or use an updatedAt field
+          createdAt: currentExistingPersona.createdAt, 
         };
       } else {
+        // Double check quota again before final creation if it's a very new persona
+        // This is a small race condition mitigation, primary check is above
+        const latestPersonasCount = await getPersonasCount(userId);
+        const latestQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
+        if (latestPersonasCount >= latestQuota) {
+            toast({
+                title: "Persona Limit Reached",
+                description: `Creation blocked as limit of ${latestQuota} was met. Please upgrade.`,
+                variant: "destructive",
+            });
+            setIsGeneratingPersona(false);
+            return;
+        }
+
         personaToSave = {
           id: crypto.randomUUID(),
           name: `${contactUser.name}'s Chat Persona`,
@@ -123,10 +169,10 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
       }
       
       await savePersona(userId, personaToSave);
-      setChatDerivedPersona(personaToSave);
+      setChatDerivedPersona(personaToSave); // Update local state
       toast({
         title: 'Persona Updated',
-        description: `${contactUser.name}'s chat persona has been updated.`,
+        description: `${contactUser.name}'s chat persona has been ${currentExistingPersona ? 'updated' : 'created'}.`,
       });
     } catch (error) {
       console.error('Failed to update/create chat-derived persona:', error);
@@ -138,7 +184,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
     } finally {
       setIsGeneratingPersona(false);
     }
-  }, [userId, chatId, contactUser.id, contactUser.name, contactUser.avatarUrl, messages, toast]);
+  }, [userId, chatId, contactUser.id, contactUser.name, contactUser.avatarUrl, messages, toast, userProfile]);
 
 
   const handleSendMessage = async (e?: React.FormEvent<HTMLFormElement>) => {
@@ -156,7 +202,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
       setUserInput('');
       
       const contactMessagesCount = messages.filter(msg => msg.senderUserId === contactUser.id).length;
-      if (contactMessagesCount > 0 && (messages.length + 1) % MESSAGES_PER_PERSONA_UPDATE === 0) { // Check total messages now
+      if (contactMessagesCount > 0 && (messages.length + 1) % MESSAGES_PER_PERSONA_UPDATE === 0) { 
          await updateOrCreateChatDerivedPersona();
       }
 
@@ -182,14 +228,22 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   const handlePracticeModeToggle = async (checked: boolean) => {
     if (checked) {
         let currentPersona = chatDerivedPersona;
-        if (!currentPersona) {
-            await updateOrCreateChatDerivedPersona();
-            currentPersona = await getChatDerivedPersona(userId!, chatId!, contactUser.id); // Re-fetch
+        if (!currentPersona && userId && chatId) { // Attempt to fetch/create if not locally available
+            const fetchedDerivedPersona = await getChatDerivedPersona(userId, chatId, contactUser.id);
+            if(fetchedDerivedPersona){
+                currentPersona = fetchedDerivedPersona;
+                setChatDerivedPersona(fetchedDerivedPersona);
+            } else {
+                await updateOrCreateChatDerivedPersona(); // This will check quota
+                currentPersona = await getChatDerivedPersona(userId, chatId, contactUser.id); // Re-fetch
+                if (currentPersona) setChatDerivedPersona(currentPersona);
+            }
         }
-        if (!currentPersona || !currentPersona.personaDescription) { // Also check if description exists
+        
+        if (!currentPersona || !currentPersona.personaDescription) { 
             toast({
                 title: "Persona Not Ready",
-                description: `A chat persona for ${contactUser.name} could not be generated or is incomplete. Send some messages or click "Update Persona" first.`,
+                description: `A chat persona for ${contactUser.name} could not be generated, is incomplete, or you've reached your persona limit. Send some messages or click "Update Persona" first.`,
                 variant: "destructive",
             });
             setIsPracticeMode(false);
@@ -221,8 +275,6 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   const formatTimestamp = (timestamp: string | number | undefined): string => {
     if (timestamp === undefined || timestamp === null) return 'sending...';
     try {
-      // Firebase server timestamps are numbers (milliseconds since epoch)
-      // ISO strings might also be used if client sets them before server does
       const date = new Date(timestamp);
       return formatDistanceToNow(date, { addSuffix: true });
     } catch (e) {
@@ -263,7 +315,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Update AI persona for {contactUser.name} based on chat.</p>
+                    <p>Update AI persona for {contactUser.name} based on chat history (subject to persona limits).</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -272,7 +324,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
                   id="practice-mode-switch"
                   checked={isPracticeMode}
                   onCheckedChange={handlePracticeModeToggle}
-                  disabled={isGeneratingPersona} 
+                  disabled={isGeneratingPersona || !chatDerivedPersona && messages.filter(m => m.senderUserId === contactUser.id).length === 0} 
                 />
                 <Label htmlFor="practice-mode-switch" className="text-sm flex items-center gap-1">
                   <Bot className="h-4 w-4" /> Practice

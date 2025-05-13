@@ -7,6 +7,8 @@ export interface UserProfile {
   avatarUrl?: string;
   lastLogin?: string; // ISO date string
   createdAt: string; // ISO date string
+  geminiApiKey?: string; // User's own Gemini API key
+  personaQuota?: number; // Number of personas user is allowed to create
 }
 
 // Extended AnalyzePersonaInsightsOutput for feature #4

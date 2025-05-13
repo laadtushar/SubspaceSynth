@@ -44,8 +44,6 @@ export const updateUserProfileInDB = async (userId: string, updates: Partial<Use
   if (!userId) throw new Error("User ID is required to update a profile.");
   const userRef = ref(db, `${USERS_PATH}/${userId}`);
   try {
-    // Filter out undefined values to avoid writing them to Firebase,
-    // which could unintentionally delete fields if not handled carefully by rules.
     const validUpdates: Partial<UserProfile> = {};
     for (const key in updates) {
       if (updates[key as keyof UserProfile] !== undefined) {
@@ -68,8 +66,7 @@ export const getRegisteredUserByEmailFromDB = async (email: string): Promise<Use
     const snapshot = await get(usersRef);
     if (snapshot.exists()) {
       const usersData = snapshot.val();
-      // snapshot.val() returns an object where keys are UIDs and values are UserProfile objects
-      const userId = Object.keys(usersData)[0]; // Get the first matching UID
+      const userId = Object.keys(usersData)[0]; 
       return usersData[userId] as UserProfile;
     }
     return null;
@@ -188,9 +185,6 @@ export const savePersona = async (userId: string, personaData: Persona): Promise
   if (!userId) throw new Error("User ID is required to save a persona.");
   const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${personaData.id}`);
   
-  // Firebase does not allow 'undefined' values.
-  // JSON.stringify will remove keys with 'undefined' values.
-  // JSON.parse will then reconstruct the object without these keys.
   const cleanedPersona = JSON.parse(JSON.stringify(personaData));
 
   try {
@@ -276,6 +270,17 @@ export const getChatDerivedPersona = async (userId: string, derivedFromChatId: s
   }
 };
 
+export const getPersonasCount = async (userId: string): Promise<number> => {
+  if (!userId) return 0;
+  const personasRefPath = `${PERSONAS_PATH_BASE}/${userId}`;
+  const snapshot = await get(ref(db, personasRefPath));
+  if (snapshot.exists()) {
+    const data = snapshot.val();
+    return data ? Object.keys(data).length : 0;
+  }
+  return 0;
+};
+
 
 // --- AI Persona Chat Message Management (for ChatInterface.tsx) ---
 export const saveChatMessage = async (userId: string, personaId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<string> => {
@@ -295,7 +300,7 @@ export const getChatMessages = (
   userId: string, 
   personaId: string, 
   callback: (messages: ChatMessage[]) => void, 
-  limit: number | null = 50 // null limit fetches all messages
+  limit: number | null = 50 
 ): (() => void) => {
   if (!userId || !personaId) {
     callback([]);
@@ -325,7 +330,6 @@ export const getChatMessages = (
   return () => off(messagesQuery, 'value', listener);
 };
 
-// New function for persona export: Fetches ALL messages for a persona
 export const getAllChatMessagesForPersona = async (userId: string, personaId: string): Promise<ChatMessage[]> => {
   if (!userId || !personaId) return [];
   

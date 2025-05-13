@@ -20,6 +20,7 @@ import type { UserProfile } from '@/lib/types';
 import type { AuthFormValues } from '@/components/auth/AuthForm';
 import { USERS_PATH, updateUserProfileInDB as updateUserProfileInDBStore } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
+import { FREE_PERSONA_LIMIT } from '@/lib/constants';
 
 interface AuthContextType {
   user: FirebaseUser | null;
@@ -32,7 +33,8 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
-  updateCurrentProfile: (updates: { name?: string; avatarUrl?: string }) => Promise<void>;
+  updateCurrentProfile: (updates: { name?: string; avatarUrl?: string; geminiApiKey?: string }) => Promise<void>;
+  incrementPersonaQuota: (amount: number) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -69,17 +71,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const existingProfile = snapshot.val() as UserProfile;
         profileData = {
           ...existingProfile,
-          id: firebaseUser.uid, // Ensure ID is from FirebaseUser
+          id: firebaseUser.uid, 
           email: firebaseUser.email || existingProfile.email || '',
           name: existingProfile.name || firebaseUser.displayName || emailNamePart,
           avatarUrl: existingProfile.avatarUrl || firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
           lastLogin: now,
+          geminiApiKey: existingProfile.geminiApiKey || '',
+          personaQuota: existingProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : existingProfile.personaQuota,
         };
+        // Ensure all fields, including new ones, are updated if user logs in
         await update(userNodeRef, { 
           lastLogin: now, 
           email: profileData.email, 
           name: profileData.name,
-          avatarUrl: profileData.avatarUrl, // ensure avatarUrl from Google is saved
+          avatarUrl: profileData.avatarUrl,
+          geminiApiKey: profileData.geminiApiKey,
+          personaQuota: profileData.personaQuota,
         });
       } else {
         profileData = {
@@ -89,6 +96,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
           avatarUrl: firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
           createdAt: now,
           lastLogin: now,
+          geminiApiKey: '', 
+          personaQuota: FREE_PERSONA_LIMIT,
         };
         await set(userNodeRef, profileData);
       }
@@ -101,7 +110,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         description: `Failed to load or create user profile: ${error.message}`,
         variant: 'destructive',
       });
-      // Fallback if DB operations fail (should be rare if rules are correct)
       const fallbackProfile: UserProfile = {
         id: firebaseUser.uid,
         email: firebaseUser.email || '',
@@ -109,6 +117,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
         createdAt: new Date().toISOString(), 
         lastLogin: new Date().toISOString(),
         avatarUrl: firebaseUser.photoURL || `https://picsum.photos/seed/${firebaseUser.uid}/100/100`,
+        geminiApiKey: '',
+        personaQuota: FREE_PERSONA_LIMIT,
       };
       setUserProfile(fallbackProfile);
       setUserId(firebaseUser.uid);
@@ -137,7 +147,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setLoadingAuth(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-      // fetchOrCreateUserProfile will be called by onAuthStateChanged
       
       try {
         await sendEmailVerification(userCredential.user);
@@ -158,7 +167,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         title: 'Signup Successful',
         description: 'Welcome! Your account has been created.',
       });
-      router.push('/'); // fetchOrCreateUserProfile will handle profile state
+      router.push('/'); 
     } catch (error: any) {
       console.error("Signup error:", error);
       toast({
@@ -169,14 +178,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error; 
     }
-    // setLoadingAuth(false) will be handled by onAuthStateChanged
   };
 
   const loginWithEmail = async (values: AuthFormValues) => {
     setLoadingAuth(true);
     try {
       await signInWithEmailAndPassword(auth, values.email, values.password);
-      // fetchOrCreateUserProfile will be called by onAuthStateChanged
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
@@ -192,7 +199,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error; 
     }
-    // setLoadingAuth(false) will be handled by onAuthStateChanged
   };
 
   const signInWithGoogle = async () => {
@@ -200,7 +206,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-      // fetchOrCreateUserProfile will be called by onAuthStateChanged
       toast({
         title: 'Signed In with Google',
         description: 'Welcome!',
@@ -216,7 +221,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoadingAuth(false); 
       throw error;
     }
-    // setLoadingAuth(false) will be handled by onAuthStateChanged
   };
 
   const logout = async () => {
@@ -235,9 +239,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         description: error.message || 'Could not log out. Please try again.',
         variant: 'destructive',
       });
-    } finally {
-      // setLoadingAuth(false) will be handled by onAuthStateChanged after signOut triggers it
-    }
+    } 
   };
 
   const resendVerificationEmail = async () => {
@@ -265,30 +267,50 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
-  const updateCurrentProfile = async (updates: { name?: string; avatarUrl?: string }) => {
+  const updateCurrentProfile = async (updates: { name?: string; avatarUrl?: string; geminiApiKey?: string }) => {
     if (!userId || !userProfile) {
       toast({ title: 'Error', description: 'No user profile found to update.', variant: 'destructive' });
       return;
     }
-    setLoadingAuth(true); // Indicate activity
+    setLoadingAuth(true); 
     try {
-      // Ensure only valid fields are passed and handle undefined for avatarUrl if empty string
       const profileUpdates: Partial<UserProfile> = {};
       if (updates.name !== undefined) profileUpdates.name = updates.name;
-      if (updates.avatarUrl !== undefined) { // Check for undefined explicitly
+      if (updates.avatarUrl !== undefined) { 
         profileUpdates.avatarUrl = updates.avatarUrl === '' ? `https://picsum.photos/seed/${userId}/100/100` : updates.avatarUrl;
       }
+      if (updates.geminiApiKey !== undefined) profileUpdates.geminiApiKey = updates.geminiApiKey;
       
       await updateUserProfileInDBStore(userId, profileUpdates);
       
-      // Update local state optimistically or after confirmation
       setUserProfile(prev => ({ ...prev!, ...profileUpdates } as UserProfile));
       
       toast({ title: 'Profile Updated', description: 'Your profile has been successfully updated.' });
-      router.push('/profile'); // Navigate back to profile page
+      router.push('/profile'); 
     } catch (error: any) {
       console.error("Error updating profile:", error);
       toast({ title: 'Update Failed', description: error.message || 'Could not update profile.', variant: 'destructive' });
+    } finally {
+      setLoadingAuth(false);
+    }
+  };
+
+  const incrementPersonaQuota = async (amount: number) => {
+    if (!userId || !userProfile) {
+      toast({ title: 'Error', description: 'No user profile found to update quota.', variant: 'destructive' });
+      return;
+    }
+    setLoadingAuth(true);
+    try {
+      const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
+      const newQuota = currentQuota + amount;
+      await updateUserProfileInDBStore(userId, { personaQuota: newQuota });
+      setUserProfile(prev => ({ ...prev!, personaQuota: newQuota } as UserProfile));
+      // Toast is handled by PaywallNotice for successful payment simulation
+    } catch (error: any) {
+      console.error("Error incrementing persona quota:", error);
+      toast({ title: 'Quota Update Failed', description: error.message || 'Could not update persona quota.', variant: 'destructive' });
+      throw error; // Re-throw for PaywallNotice to handle
     } finally {
       setLoadingAuth(false);
     }
@@ -309,11 +331,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         logout,
         resendVerificationEmail,
         updateCurrentProfile,
+        incrementPersonaQuota,
       }}
     >
       {children}
     </AuthContext.Provider>
   );
 }
-
-    

@@ -6,13 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import CreatePersonaForm from '@/components/personas/CreatePersonaForm';
 import { Loader2 } from 'lucide-react';
-import { getPersonas } from '@/lib/store'; 
-import type { Persona } from '@/lib/types'; 
+import { getPersonasCount } from '@/lib/store'; 
 import { FREE_PERSONA_LIMIT } from '@/lib/constants'; 
 import PaywallNotice from '@/components/billing/PaywallNotice'; 
 
 export default function NewPersonaPage() {
-  const { user, loadingAuth, userId } = useAuth();
+  const { user, userProfile, loadingAuth, userId } = useAuth(); // Added userProfile
   const router = useRouter();
   const [personasCount, setPersonasCount] = useState<number | null>(null);
   const [isLoadingPersonaCount, setIsLoadingPersonaCount] = useState(true);
@@ -24,38 +23,25 @@ export default function NewPersonaPage() {
   }, [user, loadingAuth, router]);
 
   useEffect(() => {
-    let unsubscribePersonas: (() => void) | undefined;
-    let firstFetchDone = false; // Declare firstFetchDone in the useEffect scope
-
     if (userId) {
       setIsLoadingPersonaCount(true);
-      // This listener will fetch personas. We take the length for the count.
-      // It unsubscribes after the first data fetch to avoid continuous updates on this page for just the count.
-      unsubscribePersonas = getPersonas(userId, (fetchedPersonas: Persona[]) => {
-        if (!firstFetchDone) {
-          setPersonasCount(fetchedPersonas.length);
+      getPersonasCount(userId)
+        .then(count => {
+          setPersonasCount(count);
           setIsLoadingPersonaCount(false);
-          firstFetchDone = true;
-          if (unsubscribePersonas) {
-            unsubscribePersonas(); // Unsubscribe after getting the count
-          }
-        }
-      });
+        })
+        .catch(error => {
+          console.error("Failed to fetch persona count:", error);
+          setPersonasCount(0); // Fallback
+          setIsLoadingPersonaCount(false);
+        });
     } else if (!loadingAuth && !user) {
-      // Not logged in, no personas to count, stop loading.
       setIsLoadingPersonaCount(false);
       setPersonasCount(0); 
     }
-    
-    return () => {
-      // Ensure unsubscription on component unmount if it's still active
-      if (unsubscribePersonas && !firstFetchDone) { 
-        unsubscribePersonas();
-      }
-    };
   }, [userId, loadingAuth, user]);
 
-  if (loadingAuth || isLoadingPersonaCount || personasCount === null) {
+  if (loadingAuth || isLoadingPersonaCount || personasCount === null || !userProfile) {
     return (
       <div className="flex justify-center items-center h-[calc(100vh-var(--header-height,0px)-2rem)]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -63,7 +49,7 @@ export default function NewPersonaPage() {
     );
   }
 
-  if (!user) { // Should be caught by earlier redirect, but as a safeguard
+  if (!user) { 
      return (
       <div className="flex justify-center items-center h-[calc(100vh-var(--header-height,0px)-2rem)]">
         <p>Redirecting to login...</p>
@@ -71,19 +57,23 @@ export default function NewPersonaPage() {
       </div>
     );
   }
+  
+  const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
 
-  if (personasCount >= FREE_PERSONA_LIMIT) {
+  if (personasCount >= currentQuota) {
     return (
         <div className="container mx-auto py-8">
-            <PaywallNotice currentPersonaCount={personasCount} freePersonaLimit={FREE_PERSONA_LIMIT} />
+            <PaywallNotice 
+              currentPersonaCount={personasCount} 
+              currentQuota={currentQuota} 
+            />
         </div>
     );
   }
 
   return (
     <div className="container mx-auto py-8">
-      <CreatePersonaForm />
+      <CreatePersonaForm currentPersonaCount={personasCount} currentQuota={currentQuota} />
     </div>
   );
 }
-

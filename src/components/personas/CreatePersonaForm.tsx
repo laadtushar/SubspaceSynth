@@ -19,8 +19,11 @@ import { useAuth } from '@/hooks/useAuth';
 
 import type { Persona } from '@/lib/types';
 import { MBTI_TYPES, GENDERS } from '@/lib/types';
-import { savePersona as savePersonaToDB } from '@/lib/store'; 
+import { savePersona as savePersonaToDB, getPersonasCount } from '@/lib/store'; 
 import { createPersonaFromChat } from '@/ai/flows/create-persona-from-chat';
+import { FREE_PERSONA_LIMIT } from '@/lib/constants';
+import Link from 'next/link';
+import { ToastAction } from '../ui/toast';
 
 const personaFormSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }).max(50),
@@ -33,10 +36,15 @@ const personaFormSchema = z.object({
 
 type PersonaFormValues = z.infer<typeof personaFormSchema>;
 
-export default function CreatePersonaForm() {
+interface CreatePersonaFormProps {
+  currentPersonaCount: number;
+  currentQuota: number;
+}
+
+export default function CreatePersonaForm({ currentPersonaCount, currentQuota }: CreatePersonaFormProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const { userId } = useAuth();
+  const { userId, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<PersonaFormValues>({
@@ -49,10 +57,10 @@ export default function CreatePersonaForm() {
   });
 
   async function onSubmit(data: PersonaFormValues) {
-    if (!userId) {
+    if (!userId || !userProfile) {
       toast({
         title: 'Error',
-        description: 'You must be logged in to create a persona.',
+        description: 'You must be logged in and profile loaded to create a persona.',
         variant: 'destructive',
       });
       setIsLoading(false);
@@ -60,6 +68,30 @@ export default function CreatePersonaForm() {
     }
 
     setIsLoading(true);
+
+    // Re-check quota on submit, as it might have changed
+    const latestPersonasCount = await getPersonasCount(userId);
+    const userCurrentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
+
+    if (latestPersonasCount >= userCurrentQuota) {
+      toast({
+        title: "Persona Limit Reached",
+        description: `You have ${latestPersonasCount}/${userCurrentQuota} personas. Please upgrade to create more.`,
+        variant: "destructive",
+        duration: 7000,
+        action: (
+          <Link href="/personas/new" legacyBehavior>
+            <ToastAction altText="Upgrade Plan">Upgrade</ToastAction>
+          </Link>
+        )
+      });
+      setIsLoading(false);
+      // Potentially redirect to paywall or dashboard
+      router.push("/personas/new"); // This will re-evaluate and show PaywallNotice if needed
+      return;
+    }
+
+
     try {
       const aiResponse = await createPersonaFromChat({ chatHistory: data.chatHistory });
       
@@ -71,7 +103,7 @@ export default function CreatePersonaForm() {
         mbti: data.mbti,
         age: data.age,
         gender: data.gender,
-        category: data.category || undefined, // Store as undefined if empty string
+        category: data.category || undefined, 
         personaDescription: aiResponse.personaDescription,
         createdAt: new Date().toISOString(),
         avatarUrl: `https://picsum.photos/seed/${data.name + Date.now()}/200/200`
@@ -103,7 +135,7 @@ export default function CreatePersonaForm() {
           <CardTitle className="text-2xl font-bold">Create New Persona</CardTitle>
         </div>
         <CardDescription>
-          Input chat history and optional attributes to generate an AI persona.
+          Input chat history and optional attributes to generate an AI persona. You have {currentQuota - currentPersonaCount} slots remaining.
         </CardDescription>
       </CardHeader>
       <Form {...form}>
@@ -238,7 +270,7 @@ export default function CreatePersonaForm() {
             </div>
           </CardContent>
           <CardFooter className="border-t pt-6">
-            <Button type="submit" className="w-full sm:w-auto" disabled={isLoading || !userId}>
+            <Button type="submit" className="w-full sm:w-auto" disabled={isLoading || !userId || !userProfile}>
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -252,4 +284,3 @@ export default function CreatePersonaForm() {
     </Card>
   );
 }
-
