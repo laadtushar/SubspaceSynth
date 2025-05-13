@@ -6,9 +6,9 @@ import { useParams, useRouter } from 'next/navigation';
 import PersonaProfileDisplay from '@/components/personas/PersonaProfileDisplay';
 import ChatInterface from '@/components/chat/ChatInterface';
 import type { Persona } from '@/lib/types';
-import { getPersonaById } from '@/lib/store';
+import { getPersonaById, savePersona } from '@/lib/store'; // Updated functions
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Bot as BotIcon } from 'lucide-react'; // Renamed Bot to BotIcon
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
@@ -18,7 +18,7 @@ export default function PersonaPage() {
   const router = useRouter();
   const params = useParams();
   
-  const [persona, setPersona] = useState<Persona | null | undefined>(undefined); // undefined for loading, null for not found
+  const [persona, setPersona] = useState<Persona | null | undefined>(undefined);
   const [pageLoading, setPageLoading] = useState(true);
 
   const personaIdParams = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -30,18 +30,30 @@ export default function PersonaPage() {
   }, [user, loadingAuth, router]);
 
   useEffect(() => {
-    if (userId && personaIdParams) {
-      const fetchedPersona = getPersonaById(userId, personaIdParams);
-      setPersona(fetchedPersona || null); 
-      setPageLoading(false);
-    } else if (!loadingAuth && !user) {
-      setPageLoading(false);
-    }
+    const fetchPersona = async () => {
+      if (userId && personaIdParams) {
+        setPageLoading(true);
+        const fetchedPersona = await getPersonaById(userId, personaIdParams);
+        setPersona(fetchedPersona || null); 
+        setPageLoading(false);
+      } else if (!loadingAuth && !user) {
+        setPageLoading(false);
+      }
+    };
+    fetchPersona();
   }, [userId, personaIdParams, loadingAuth, user]);
 
 
-  const handlePersonaUpdate = (updatedPersona: Persona) => {
-    setPersona(updatedPersona); 
+  const handlePersonaUpdate = async (updatedPersona: Persona) => {
+    if (userId) {
+      try {
+        await savePersona(userId, updatedPersona); // Save to Firebase
+        setPersona(updatedPersona); // Update local state
+      } catch (error) {
+        console.error("Error updating persona in Firebase:", error);
+        // Optionally, show a toast message for the error
+      }
+    }
   };
 
   if (loadingAuth || pageLoading) {
@@ -82,10 +94,7 @@ export default function PersonaPage() {
     );
   }
 
-  // Chat-derived personas might not have all features available for direct chat if they are only for practice mode.
-  // For now, ChatInterface will work, but specific UI adjustments might be needed if features differ.
   const isChatInterfaceDisabled = persona.originType === 'chat-derived' && !persona.personaDescription;
-
 
   return (
     <div className="h-[calc(100vh-var(--header-height,0px)-2rem)] md:h-[calc(100vh-2rem)] grid md:grid-cols-[350px_1fr] lg:grid-cols-[400px_1fr] gap-1 p-0 md:p-1 max-h-screen overflow-hidden">
@@ -100,7 +109,7 @@ export default function PersonaPage() {
       <div className="h-full">
         {isChatInterfaceDisabled ? (
             <div className="flex flex-col items-center justify-center h-full text-center p-4 bg-muted/50 rounded-lg">
-                <Bot className="w-16 h-16 text-muted-foreground mb-4" />
+                <BotIcon className="w-16 h-16 text-muted-foreground mb-4" />
                 <h2 className="text-xl font-semibold mb-2">Practice Persona Not Ready</h2>
                 <p className="text-muted-foreground">This AI persona is derived from a chat and needs to be generated or updated from the original chat screen.</p>
             </div>

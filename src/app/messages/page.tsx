@@ -1,18 +1,26 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { MessageSquarePlus, Users, Loader2, Search } from 'lucide-react';
+import { MessageSquarePlus, Users, Loader2, Search, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { getUserContacts } from '@/lib/store';
+import { getUserContacts } from '@/lib/store'; // Updated function
 import type { UserContact } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import AddContactForm from '@/components/contacts/AddContactForm'; // New component
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 export default function MessagesPage() {
   const { user, loadingAuth, userId } = useAuth();
@@ -20,21 +28,34 @@ export default function MessagesPage() {
   const [contacts, setContacts] = useState<UserContact[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [pageLoading, setPageLoading] = useState(true);
+  const [isAddContactDialogOpen, setIsAddContactDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!loadingAuth && !user) {
       router.push('/login');
+      setPageLoading(false);
     }
   }, [user, loadingAuth, router]);
 
   useEffect(() => {
+    let unsubscribeContacts: (() => void) | undefined;
+
     if (userId) {
-      setContacts(getUserContacts(userId));
-      setPageLoading(false);
+      setPageLoading(true);
+      unsubscribeContacts = getUserContacts(userId, (fetchedContacts) => {
+        setContacts(fetchedContacts);
+        setPageLoading(false);
+      });
     } else if (!loadingAuth && !user) {
-      setPageLoading(false); // User not logged in, redirect handled
+      setPageLoading(false);
     }
+    return () => {
+      if (unsubscribeContacts) {
+        unsubscribeContacts();
+      }
+    };
   }, [userId, loadingAuth, user]);
+
 
   if (loadingAuth || pageLoading) {
     return (
@@ -45,9 +66,11 @@ export default function MessagesPage() {
   }
 
   if (!user) {
+    // Should be redirected by the effect, but as a fallback
     return (
       <div className="flex justify-center items-center h-screen">
         <p>Redirecting to login...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -63,7 +86,19 @@ export default function MessagesPage() {
           <Users className="h-8 w-8 text-primary" />
           <h1 className="text-3xl font-bold">Contacts</h1>
         </div>
-        {/* Future: Add "Find Friends" or similar button */}
+        <Dialog open={isAddContactDialogOpen} onOpenChange={setIsAddContactDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <UserPlus className="mr-2 h-4 w-4" /> Add Contact
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Add New Contact</DialogTitle>
+            </DialogHeader>
+            <AddContactForm currentUserId={userId!} onContactAdded={() => setIsAddContactDialogOpen(false)} />
+          </DialogContent>
+        </Dialog>
       </header>
 
       <div className="mb-6">
@@ -86,11 +121,11 @@ export default function MessagesPage() {
               <CardHeader className="flex flex-row items-center gap-4">
                 <Avatar className="h-12 w-12">
                   <AvatarImage src={contact.avatarUrl || `https://picsum.photos/seed/${contact.id}/60/60`} alt={contact.name} data-ai-hint="profile avatar"/>
-                  <AvatarFallback>{contact.name.substring(0, 1).toUpperCase()}</AvatarFallback>
+                  <AvatarFallback>{contact.name?.substring(0, 1).toUpperCase() || '?'}</AvatarFallback>
                 </Avatar>
                 <div>
                   <CardTitle className="text-lg">{contact.name}</CardTitle>
-                  <CardDescription>Start a conversation</CardDescription>
+                  <CardDescription>Added: {new Date(contact.addedAt).toLocaleDateString()}</CardDescription>
                 </div>
               </CardHeader>
               <CardContent className="flex justify-end">
@@ -108,9 +143,8 @@ export default function MessagesPage() {
           <Users className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
           <h2 className="text-xl font-semibold mb-2">No Contacts Found</h2>
           <p className="text-muted-foreground">
-            {searchTerm ? `No contacts match your search for "${searchTerm}".` : "Your contact list is currently empty."}
+            {searchTerm ? `No contacts match your search for "${searchTerm}".` : "Your contact list is currently empty. Click 'Add Contact' to get started."}
           </p>
-          {/* Future: Link to "Find Friends" page */}
         </div>
       )}
     </div>

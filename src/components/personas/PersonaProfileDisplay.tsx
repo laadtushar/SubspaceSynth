@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { analyzePersonaInsights, type AnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
 import { developPersonaPersonality } from '@/ai/flows/develop-persona-flow';
-import { savePersona } from '@/lib/store';
+import { savePersona as savePersonaToDB } from '@/lib/store'; // Updated function
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
@@ -31,7 +31,7 @@ import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveCont
 
 interface PersonaProfileDisplayProps {
   persona: Persona;
-  onPersonaUpdate: (updatedPersona: Persona) => void;
+  onPersonaUpdate: (updatedPersona: Persona) => void; // Callback to update parent state if needed
 }
 
 const isStructuredInsights = (insights: any): insights is AnalyzePersonaInsightsOutput => {
@@ -50,36 +50,51 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   const isChatDerived = persona.originType === 'chat-derived';
 
   const handleAnalyzeInsights = async () => {
-    if (!userId || !persona.chatHistory) { // chatHistory is for user-created, sourceChatMessages for derived
+    if (!userId) {
+        toast({ title: 'Error', description: 'User not logged in.', variant: 'destructive' });
+        return;
+    }
+
+    // For chat-derived personas, sourceChatMessagesCount needs to be used to determine if analysis is possible
+    // The actual messages are not stored in the persona object in Firebase for size reasons.
+    // Analysis for chat-derived personas would require fetching those messages, which is complex here.
+    // Let's simplify: for chat-derived, if there's no pre-existing insight or it's very basic, disable or show a message.
+    // For user-created, use persona.chatHistory.
+    
+    const sourceHistoryForAnalysis = persona.originType === 'user-created' 
+      ? persona.chatHistory
+      : null; // Placeholder: analysis of chat-derived messages needs a different flow or access to user_chat_messages
+
+    if (!sourceHistoryForAnalysis && persona.originType === 'user-created') {
         toast({
             title: 'Cannot Analyze',
-            description: 'Source chat data is missing for this persona type.',
+            description: 'Seed chat history is missing for this user-created persona.',
             variant: 'destructive'
         });
         return;
     }
+    if (persona.originType === 'chat-derived') {
+         toast({
+            title: 'Analysis Not Supported (Yet)',
+            description: 'Detailed insight analysis for chat-derived personas directly from here requires fetching full chat history, which is not currently implemented in this view. Insights are generated during chat.',
+            variant: 'default'
+        });
+        return;
+    }
+
+
     setIsLoadingInsights(true);
     try {
-      const sourceHistory = persona.originType === 'user-created' 
-        ? persona.chatHistory 
-        : persona.sourceChatMessages?.map(m => `${m.senderUserId === persona.derivedRepresentingUserId ? persona.name.replace("'s Chat Persona", "") : "Other"}: ${m.text}`).join('\n');
-      
-      if (!sourceHistory) {
-        toast({ title: 'Error', description: 'No source messages to analyze.', variant: 'destructive' });
-        setIsLoadingInsights(false);
-        return;
-      }
-
       const insightsResponse = await analyzePersonaInsights({
-        chatHistory: sourceHistory,
+        chatHistory: sourceHistoryForAnalysis!, // Safe due to check above for user-created
         mbtiType: persona.mbti,
         age: persona.age,
         gender: persona.gender,
       });
 
       const updatedPersona = { ...persona, personalityInsights: insightsResponse };
-      savePersona(userId, updatedPersona);
-      onPersonaUpdate(updatedPersona);
+      await savePersonaToDB(userId, updatedPersona); // Save to Firebase
+      onPersonaUpdate(updatedPersona); // Update parent state
 
       toast({
         title: 'Insights Generated',
@@ -98,7 +113,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
   };
 
   const handleDevelopPersonality = async () => {
-    if (!userId || !developmentPrompts.trim() || isChatDerived) { // Disable for chat-derived
+    if (!userId || !developmentPrompts.trim() || isChatDerived) { 
         toast({
             title: 'Error',
             description: !userId ? 'You must be logged in.' : isChatDerived ? 'Cannot develop personality for chat-derived personas.' : 'Development prompts cannot be empty.',
@@ -118,8 +133,8 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
       });
 
       const updatedPersona = { ...persona, personaDescription: response.newPersonaDescription };
-      savePersona(userId, updatedPersona);
-      onPersonaUpdate(updatedPersona);
+      await savePersonaToDB(userId, updatedPersona); // Save to Firebase
+      onPersonaUpdate(updatedPersona); // Update parent state
       
       toast({
         title: 'Personality Developed',
@@ -254,8 +269,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
           </div>
 
           <div className="space-y-4">
-             {/* Personality Insights Section: Enable only for 'user-created' personas or if explicitly allowed for 'chat-derived' */}
-            {(persona.originType === 'user-created' || (persona.originType === 'chat-derived' && persona.sourceChatMessages && persona.sourceChatMessages.length > 0)) && (
+            {(persona.originType === 'user-created') && ( // Only allow detailed insight generation for user-created personas from this UI
               <>
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-semibold text-muted-foreground flex items-center">
@@ -263,7 +277,7 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                   </h3>
                   <Button 
                     onClick={handleAnalyzeInsights} 
-                    disabled={isLoadingInsights || !userId || (persona.originType === 'user-created' && !persona.chatHistory) || (persona.originType === 'chat-derived' && (!persona.sourceChatMessages || persona.sourceChatMessages.length === 0))} 
+                    disabled={isLoadingInsights || !userId || (persona.originType === 'user-created' && !persona.chatHistory)} 
                     size="sm" 
                     variant="outline"
                   >
@@ -281,6 +295,12 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                       Previous insights are in an old format. Click "Refresh Insights" to generate new detailed statistics and visualizations.
                     </p>
                 )}
+                 {displayableInsights && persona.originType === 'chat-derived' && (
+                     <p className="text-sm bg-blue-100 dark:bg-blue-900/30 p-3 rounded-md text-blue-700 dark:text-blue-400">
+                        Insights for chat-derived personas are based on the chat history and update during conversations.
+                    </p>
+                )}
+
 
                 {displayableInsights ? (
                   <div className="space-y-4">
@@ -382,6 +402,13 @@ export default function PersonaProfileDisplay({ persona, onPersonaUpdate }: Pers
                 )}
               </>
             )}
+             {persona.originType === 'chat-derived' && !displayableInsights && !isLoadingInsights && (
+                <div className="text-center p-4 border border-dashed rounded-md">
+                    <p className="text-sm text-muted-foreground">Insights for chat-derived personas are generated during the chat.</p>
+                    <p className="text-xs text-muted-foreground">Engage in conversation with the original contact to update this persona's insights.</p>
+                </div>
+            )}
+
           </div>
         </CardContent>
       </ScrollArea>

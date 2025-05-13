@@ -8,7 +8,7 @@ import PersonaCard from '@/components/personas/PersonaCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Persona } from '@/lib/types';
-import { getPersonas, deletePersona as deletePersonaFromStore } from '@/lib/store';
+import { getPersonas, deletePersona as deletePersonaFromStore } from '@/lib/store'; // Updated functions
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
@@ -24,28 +24,47 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!loadingAuth && !user) {
       router.push('/login');
+      setPageLoading(false); 
     }
   }, [user, loadingAuth, router]);
 
   useEffect(() => {
+    let unsubscribePersonas: (() => void) | undefined;
+
     if (userId) {
-      setPersonas(getPersonas(userId));
-      setPageLoading(false);
+      setPageLoading(true);
+      unsubscribePersonas = getPersonas(userId, (fetchedPersonas) => {
+        setPersonas(fetchedPersonas);
+        setPageLoading(false);
+      });
     } else if (!loadingAuth && !user) {
-       // User is not logged in and auth is not loading, handled by above redirect
        setPageLoading(false);
     }
-    // If loadingAuth is true, or userId is not yet available, keep pageLoading true
+    
+    return () => {
+      if (unsubscribePersonas) {
+        unsubscribePersonas();
+      }
+    };
   }, [userId, loadingAuth, user]);
 
-  const handleDeletePersona = (personaId: string) => {
+  const handleDeletePersona = async (personaId: string) => {
     if (!userId) return;
-    deletePersonaFromStore(userId, personaId);
-    setPersonas(prevPersonas => prevPersonas.filter(p => p.id !== personaId));
-    toast({
-      title: "Persona Deleted",
-      description: "The persona has been successfully deleted.",
-    });
+    try {
+      await deletePersonaFromStore(userId, personaId);
+      // Personas state will be updated by the onValue listener
+      toast({
+        title: "Persona Deleted",
+        description: "The persona has been successfully deleted.",
+      });
+    } catch (error) {
+      console.error("Error deleting persona:", error);
+      toast({
+        title: "Error Deleting Persona",
+        description: (error as Error).message || "Could not delete persona.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (loadingAuth || pageLoading) {
@@ -57,7 +76,6 @@ export default function DashboardPage() {
   }
   
   if (!user) {
-    // This case should ideally be handled by the redirect, but as a fallback
     return (
       <div className="flex justify-center items-center h-screen">
         <p>Redirecting to login...</p>
@@ -65,7 +83,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
 
   const filteredPersonas = personas.filter(persona =>
     persona.name.toLowerCase().includes(searchTerm.toLowerCase())

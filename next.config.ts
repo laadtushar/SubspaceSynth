@@ -1,3 +1,4 @@
+
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
@@ -18,6 +19,9 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Ensure environment variables are available on the client-side if prefixed with NEXT_PUBLIC_
+  // No specific configuration needed here for that, Next.js handles it automatically.
+  // Just make sure they are set in your .env.local or environment.
 };
 
 export default nextConfig;

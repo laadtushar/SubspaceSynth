@@ -11,7 +11,6 @@ import { Bot, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-// import { Label } from '@/components/ui/label'; // No longer directly used
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -20,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 import type { Persona } from '@/lib/types';
 import { MBTI_TYPES, GENDERS } from '@/lib/types';
-import { savePersona } from '@/lib/store';
+import { savePersona as savePersonaToDB } from '@/lib/store'; // Updated function
 import { createPersonaFromChat } from '@/ai/flows/create-persona-from-chat';
 
 const personaFormSchema = z.object({
@@ -63,10 +62,10 @@ export default function CreatePersonaForm() {
       const aiResponse = await createPersonaFromChat({ chatHistory: data.chatHistory });
       
       const newPersona: Persona = {
-        id: crypto.randomUUID(),
+        id: crypto.randomUUID(), // Client-side ID generation for Firebase path
         name: data.name,
-        originType: 'user-created', // Specify origin type
-        chatHistory: data.chatHistory, // Seed history for user-created
+        originType: 'user-created',
+        chatHistory: data.chatHistory,
         mbti: data.mbti,
         age: data.age,
         gender: data.gender,
@@ -75,7 +74,7 @@ export default function CreatePersonaForm() {
         avatarUrl: `https://picsum.photos/seed/${data.name + Date.now()}/200/200`
       };
 
-      savePersona(userId, newPersona);
+      await savePersonaToDB(userId, newPersona); // Save to Firebase
       toast({
         title: 'Persona Created!',
         description: `${data.name} has been successfully created and analyzed.`,
@@ -182,7 +181,7 @@ export default function CreatePersonaForm() {
                         value={field.value ?? ''}
                         onChange={event => {
                           const val = event.target.value;
-                          field.onChange(val === "" ? undefined : val);
+                          field.onChange(val === "" ? undefined : Number(val)); // Ensure it's a number or undefined
                         }}
                       />
                     </FormControl>
@@ -201,7 +200,7 @@ export default function CreatePersonaForm() {
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select Gender" />
-                        </SelectTrigger>
+                        </Trigger>
                       </FormControl>
                       <SelectContent>
                         {GENDERS.map((gender) => (

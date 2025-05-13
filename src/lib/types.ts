@@ -1,5 +1,14 @@
 import type { AnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
 
+export interface UserProfile {
+  id: string; // Firebase UID
+  email: string;
+  name: string; // Display name
+  avatarUrl?: string;
+  lastLogin?: string; // ISO date string
+  createdAt: string; // ISO date string
+}
+
 export interface Persona {
   id: string;
   name: string; 
@@ -7,47 +16,45 @@ export interface Persona {
   createdAt: string; // ISO date string
   avatarUrl?: string; 
 
-  // Differentiates the origin and type of persona
   originType: 'user-created' | 'chat-derived';
 
-  // --- Fields for 'user-created' personas ---
-  chatHistory?: string; // The seed history for user-created personas
+  chatHistory?: string; 
   mbti?: string;
   age?: number;
   gender?: string;
-  personalityInsights?: AnalyzePersonaInsightsOutput;
+  personalityInsights?: AnalyzePersonaInsightsOutput; // Keep this structure
 
-  // --- Fields for 'chat-derived' personas ---
-  // ID of the user-to-user chat (e.g., sorted "userId1-userId2") it's derived from
+  // For 'chat-derived' personas
   derivedFromChatId?: string; 
-  // The user ID this persona represents in the chat (the contact user's ID)
   derivedRepresentingUserId?: string;  
-  // Actual messages from the represented user used to derive/update this persona
-  sourceChatMessages?: UserChatMessage[]; 
+  // sourceChatMessages might be too large to store directly in the persona object in Firebase.
+  // Consider storing only a summary or reference, or fetching them on demand.
+  // For now, let's assume it might be a smaller set or a reference.
+  sourceChatMessagesCount?: number; // Example: store count instead of full messages
 }
 
-export interface ChatMessage {
+export interface ChatMessage { // For AI Persona chats
   id: string;
-  personaId: string; // ID of the Persona (user-created or chat-derived in practice mode)
+  // personaId: string; // No longer needed if messages are nested under personaId in DB
   sender: 'user' | 'ai';
   text: string;
   timestamp: string; // ISO date string
   context?: string; 
 }
 
-export interface UserChatMessage {
-  id: string;
-  chatId: string; // Composite key like "userId1-userId2" (sorted)
-  senderUserId: string; // UID of the message sender
-  // receiverUserId: string; // UID of the message receiver - not strictly needed if chatId implies participants
+export interface UserChatMessage { // For User-to-User chats
+  id: string; // Message ID
+  // chatId is the parent key in DB: user_chat_messages/${chatId}/${messageId}
+  senderUserId: string; 
   text: string;
   timestamp: string; // ISO date string
 }
 
-export interface UserContact {
-  id: string; // User's UID
-  name: string;
-  avatarUrl?: string;
+export interface UserContact { // Represents a user in another user's contact list
+  id: string; // UID of the contact user
+  name: string; // Name of the contact, denormalized for quick display
+  avatarUrl?: string; // Avatar of the contact, denormalized
+  addedAt: string; // ISO date string when contact was added
 }
 
 

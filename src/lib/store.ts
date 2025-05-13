@@ -1,156 +1,326 @@
 
-import type { Persona, ChatMessage, UserChatMessage, UserContact } from './types';
+import type { Persona, ChatMessage, UserChatMessage, UserContact, UserProfile } from './types';
+import { db } from './firebase';
+import { 
+  ref, 
+  set, 
+  get, 
+  query, 
+  orderByChild, 
+  equalTo, 
+  push, 
+  remove, 
+  serverTimestamp, 
+  onValue, 
+  off,
+  orderByKey,
+  limitToLast
+} from 'firebase/database';
 
-const PERSONAS_KEY_BASE = 'personaSim_personas';
-const CHATS_KEY_PREFIX_BASE = 'personaSim_chats_'; // For persona chats
-const USER_CHATS_KEY_PREFIX_BASE = 'personaSim_userchats_'; // For user-to-user chats
+// Firebase Realtime Database Paths
+export const USERS_PATH = 'users'; // Stores UserProfile objects, keyed by UID
+const USER_CONTACTS_PATH_BASE = 'user_contacts'; // Stores UserContact objects: user_contacts/{currentUserId}/{contactUserId}
+const PERSONAS_PATH_BASE = 'personas'; // Stores Persona objects: personas/{userId}/{personaId}
+const AI_CHAT_MESSAGES_PATH_BASE = 'ai_chat_messages'; // Stores ChatMessage: ai_chat_messages/{userId}/{personaId}/{messageId}
+const USER_CHAT_MESSAGES_PATH_BASE = 'user_chat_messages'; // Stores UserChatMessage: user_chat_messages/{chatId}/{messageId}
 
-// Helper to safely access localStorage
-const getLocalStorageItem = (key: string): string | null => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem(key);
+
+// --- User Profile Management (Primarily handled in AuthContext, helpers can be here) ---
+
+export const getUserProfileById = async (userId: string): Promise<UserProfile | null> => {
+  if (!userId) return null;
+  const userRef = ref(db, `${USERS_PATH}/${userId}`);
+  try {
+    const snapshot = await get(userRef);
+    return snapshot.exists() ? (snapshot.val() as UserProfile) : null;
+  } catch (error) {
+    console.error(`Error fetching user profile for ${userId}:`, error);
+    return null;
   }
-  return null;
 };
 
-const setLocalStorageItem = (key: string, value: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(key, value);
+export const getRegisteredUserByEmailFromDB = async (email: string): Promise<UserProfile | null> => {
+  // Firebase Realtime Database doesn't support querying by arbitrary fields like email directly without specific indexing rules.
+  // A common approach is to fetch all users and filter, or create a separate index (e.g., emailToUid map).
+  // For simplicity, if your rules allow reading the whole /users path:
+  const usersRef = query(ref(db, USERS_PATH), orderByChild('email'), equalTo(email.toLowerCase()));
+  try {
+    const snapshot = await get(usersRef);
+    if (snapshot.exists()) {
+      const usersData = snapshot.val();
+      // snapshot.val() returns an object where keys are UIDs and values are UserProfile objects
+      const userId = Object.keys(usersData)[0]; // Get the first matching UID
+      return usersData[userId] as UserProfile;
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching user by email ${email}:`, error);
+     if ((error as any).code === 'PERMISSION_DENIED') {
+        console.error(
+          "Firebase Realtime Database permission denied for querying users by email. " +
+          "Ensure your rules allow reading the 'users' path or specific indexes. " +
+          "For querying by email, you'd need: rules > users > .indexOn: ['email']"
+        );
+      }
+    return null;
   }
 };
 
-const removeLocalStorageItem = (key: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(key);
+
+// --- User Contact Management ---
+
+export const addContactByEmail = async (currentUserId: string, email: string): Promise<UserContact | null> => {
+  if (!currentUserId || !email) return null;
+
+  const contactUserToAdd = await getRegisteredUserByEmailFromDB(email);
+  if (!contactUserToAdd) {
+    throw new Error('User with that email not found in the system.');
   }
-}
-
-const getPersonasKey = (userId: string) => `${PERSONAS_KEY_BASE}_${userId}`;
-// Key for persona (AI) chat messages
-const getPersonaChatKey = (userId: string, personaId: string) => `${CHATS_KEY_PREFIX_BASE}${userId}_${personaId}`;
-// Key for user-to-user chat messages
-const getUserChatKey = (chatId: string) => `${USER_CHATS_KEY_PREFIX_BASE}${chatId}`;
-
-
-// --- User Contact Management (Mocked) ---
-const MOCK_USER_CONTACTS: UserContact[] = [
-  { id: 'user2_mock_id_alex', name: 'Alex Smith', avatarUrl: 'https://picsum.photos/seed/alex/60/60' },
-  { id: 'user3_mock_id_maria', name: 'Maria Garcia', avatarUrl: 'https://picsum.photos/seed/maria/60/60' },
-  { id: 'user4_mock_id_sam', name: 'Sam Lee', avatarUrl: 'https://picsum.photos/seed/sam/60/60' },
-];
-
-export const getUserContacts = (currentUserId: string): UserContact[] => {
-  // In a real app, this would fetch from a backend.
-  // We filter out the current user from the list of contacts.
-  return MOCK_USER_CONTACTS.filter(contact => contact.id !== currentUserId);
-};
-
-export const getUserContactById = (contactId: string): UserContact | undefined => {
-  // Also include current user if their ID is passed, for fetching their own details if needed
-  const allUsers = [...MOCK_USER_CONTACTS, /* potentially add self if not in MOCK_USER_CONTACTS */];
-  return allUsers.find(contact => contact.id === contactId);
-};
-
-
-// --- Persona Management (Handles both user-created and chat-derived) ---
-export const getPersonas = (userId: string): Persona[] => {
-  if (!userId) return [];
-  const personasKey = getPersonasKey(userId);
-  const personasJson = getLocalStorageItem(personasKey);
-  return personasJson ? JSON.parse(personasJson) : [];
-};
-
-export const getPersonaById = (userId: string, id: string): Persona | undefined => {
-  if (!userId) return undefined;
-  const personas = getPersonas(userId);
-  return personas.find(p => p.id === id);
-};
-
-// Specific function to get a chat-derived persona
-export const getChatDerivedPersona = (userId: string, derivedFromChatId: string, derivedRepresentingUserId: string): Persona | undefined => {
-  if (!userId) return undefined;
-  const personas = getPersonas(userId);
-  return personas.find(p => 
-    p.originType === 'chat-derived' && 
-    p.derivedFromChatId === derivedFromChatId &&
-    p.derivedRepresentingUserId === derivedRepresentingUserId
-  );
-};
-
-export const savePersona = (userId: string, persona: Persona): void => {
-  if (!userId) return;
-  const personasKey = getPersonasKey(userId);
-  const personas = getPersonas(userId); 
-  const existingIndex = personas.findIndex(p => p.id === persona.id);
-  if (existingIndex > -1) {
-    personas[existingIndex] = persona;
-  } else {
-    personas.push(persona);
+  if (contactUserToAdd.id === currentUserId) {
+    throw new Error('You cannot add yourself as a contact.');
   }
-  setLocalStorageItem(personasKey, JSON.stringify(personas));
+
+  const currentUserContactsPath = `${USER_CONTACTS_PATH_BASE}/${currentUserId}`;
+  const contactEntryRef = ref(db, `${currentUserContactsPath}/${contactUserToAdd.id}`);
+
+  const snapshot = await get(contactEntryRef);
+  if (snapshot.exists()) {
+    throw new Error(`${contactUserToAdd.name || contactUserToAdd.email} is already in your contacts.`);
+  }
+
+  const newContact: UserContact = {
+    id: contactUserToAdd.id,
+    name: contactUserToAdd.name,
+    avatarUrl: contactUserToAdd.avatarUrl,
+    addedAt: new Date().toISOString(),
+  };
+
+  try {
+    await set(contactEntryRef, newContact);
+    // Optionally, add a reciprocal contact entry for the other user (or handle via friend requests)
+    return newContact;
+  } catch (error) {
+    console.error(`Error adding contact ${email}:`, error);
+    throw new Error('Could not add contact. Please try again.');
+  }
 };
 
-export const deletePersona = (userId: string, personaId: string): void => {
-  if (!userId) return;
-  const personasKey = getPersonasKey(userId);
-  let personas = getPersonas(userId);
-  const personaToDelete = personas.find(p => p.id === personaId);
+export const getUserContacts = (currentUserId: string, callback: (contacts: UserContact[]) => void): (() => void) => {
+  if (!currentUserId) {
+    callback([]);
+    return () => {};
+  }
+  const contactsRefPath = `${USER_CONTACTS_PATH_BASE}/${currentUserId}`;
+  const contactsQuery = query(ref(db, contactsRefPath), orderByChild('name')); // Example: order by name
+
+  const listener = onValue(contactsQuery, (snapshot) => {
+    const contactsData = snapshot.val();
+    if (contactsData) {
+      const contactsList = Object.values(contactsData) as UserContact[];
+      callback(contactsList);
+    } else {
+      callback([]);
+    }
+  }, (error) => {
+    console.error("Error fetching user contacts:", error);
+    callback([]);
+  });
+
+  return () => off(contactsQuery, 'value', listener); // Detach listener
+};
+
+
+// --- AI Persona Management ---
+export const savePersona = async (userId: string, persona: Persona): Promise<void> => {
+  if (!userId) throw new Error("User ID is required to save a persona.");
+  const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${persona.id}`);
+  try {
+    await set(personaRef, persona);
+  } catch (error) {
+    console.error(`Error saving persona ${persona.id}:`, error);
+    throw error;
+  }
+};
+
+export const getPersonas = (userId: string, callback: (personas: Persona[]) => void): (() => void) => {
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+  const personasRefPath = `${PERSONAS_PATH_BASE}/${userId}`;
+  const personasQuery = query(ref(db, personasRefPath), orderByChild('createdAt'));
+
+  const listener = onValue(personasQuery, (snapshot) => {
+    const personasData = snapshot.val();
+    if (personasData) {
+      const personasList = Object.values(personasData) as Persona[];
+      callback(personasList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    } else {
+      callback([]);
+    }
+  }, (error) => {
+    console.error("Error fetching personas:", error);
+    callback([]);
+  });
+  return () => off(personasQuery, 'value', listener);
+};
+
+export const getPersonaById = async (userId: string, personaId: string): Promise<Persona | null> => {
+  if (!userId || !personaId) return null;
+  const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${personaId}`);
+  try {
+    const snapshot = await get(personaRef);
+    return snapshot.exists() ? (snapshot.val() as Persona) : null;
+  } catch (error) {
+    console.error(`Error fetching persona ${personaId}:`, error);
+    return null;
+  }
+};
+
+export const deletePersona = async (userId: string, personaId: string): Promise<void> => {
+  if (!userId || !personaId) throw new Error("User ID and Persona ID are required.");
   
-  personas = personas.filter(p => p.id !== personaId);
-  setLocalStorageItem(personasKey, JSON.stringify(personas));
-  
-  // If it's a user-created persona, also delete its associated AI chats
-  if (personaToDelete && personaToDelete.originType === 'user-created') {
-    const chatKey = getPersonaChatKey(userId, personaId);
-    removeLocalStorageItem(chatKey);
+  const persona = await getPersonaById(userId, personaId); // Fetch to check originType
+
+  const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${personaId}`);
+  try {
+    await remove(personaRef);
+    // If it's a user-created persona, also delete its associated AI chats
+    if (persona && persona.originType === 'user-created') {
+      const aiChatMessagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
+      await remove(aiChatMessagesRef);
+    }
+  } catch (error) {
+    console.error(`Error deleting persona ${personaId}:`, error);
+    throw error;
   }
-  // Chat-derived personas don't have their own separate chat logs in the same way; their 'chats' are the user-to-user messages.
+};
+
+// Specific function to get a chat-derived persona (used by UserChatInterface)
+export const getChatDerivedPersona = async (userId: string, derivedFromChatId: string, derivedRepresentingUserId: string): Promise<Persona | null> => {
+  if (!userId) return null;
+  const personasRefPath = `${PERSONAS_PATH_BASE}/${userId}`;
+  // Firebase RTDB query for multiple conditions is complex.
+  // It's often easier to fetch and filter or structure data for direct lookup.
+  // Querying by one field and filtering by others:
+  const q = query(ref(db, personasRefPath), orderByChild('derivedFromChatId'), equalTo(derivedFromChatId));
+  try {
+    const snapshot = await get(q);
+    if (snapshot.exists()) {
+      const personasData = snapshot.val();
+      const matchingPersona = Object.values(personasData as Record<string, Persona>).find(
+        p => p.originType === 'chat-derived' && p.derivedRepresentingUserId === derivedRepresentingUserId
+      );
+      return matchingPersona || null;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching chat-derived persona:", error);
+    return null;
+  }
 };
 
 
-// --- AI Persona Chat Management (for ChatInterface.tsx) ---
-export const getChatMessages = (userId: string, personaId: string): ChatMessage[] => {
-  if (!userId) return [];
-  const chatKey = getPersonaChatKey(userId, personaId);
-  const messagesJson = getLocalStorageItem(chatKey);
-  return messagesJson ? JSON.parse(messagesJson) : [];
+// --- AI Persona Chat Message Management (for ChatInterface.tsx) ---
+export const saveChatMessage = async (userId: string, personaId: string, message: Omit<ChatMessage, 'id'>): Promise<string> => {
+  if (!userId || !personaId) throw new Error("User ID and Persona ID are required.");
+  const messagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
+  const newMessageRef = push(messagesRef); // Generates a unique ID
+  try {
+    await set(newMessageRef, { ...message, timestamp: serverTimestamp() }); // Use serverTimestamp for consistency
+    return newMessageRef.key!; // Return the generated message ID
+  } catch (error) {
+    console.error("Error saving AI chat message:", error);
+    throw error;
+  }
 };
 
-export const saveChatMessage = (userId: string, personaId: string, message: ChatMessage): void => {
-  if (!userId) return;
-  const chatKey = getPersonaChatKey(userId, personaId);
-  const messages = getChatMessages(userId, personaId);
-  messages.push(message);
-  setLocalStorageItem(chatKey, JSON.stringify(messages));
+export const getChatMessages = (userId: string, personaId: string, callback: (messages: ChatMessage[]) => void, limit: number = 50): (() => void) => {
+  if (!userId || !personaId) {
+    callback([]);
+    return () => {};
+  }
+  const messagesQuery = query(ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`), orderByChild('timestamp'), limitToLast(limit));
+  
+  const listener = onValue(messagesQuery, (snapshot) => {
+    const messagesData = snapshot.val();
+    if (messagesData) {
+      const messagesList = Object.entries(messagesData).map(([id, data]) => ({ id, ...(data as Omit<ChatMessage, 'id'>) }));
+      callback(messagesList);
+    } else {
+      callback([]);
+    }
+  }, (error) => {
+    console.error("Error fetching AI chat messages:", error);
+    callback([]);
+  });
+  return () => off(messagesQuery, 'value', listener);
 };
 
-export const clearChatMessages = (userId: string, personaId: string): void => {
-  if (!userId) return;
-  const chatKey = getPersonaChatKey(userId, personaId);
-  removeLocalStorageItem(chatKey);
+export const clearChatMessages = async (userId: string, personaId: string): Promise<void> => {
+  if (!userId || !personaId) return;
+  const messagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
+  try {
+    await remove(messagesRef);
+  } catch (error) {
+    console.error("Error clearing AI chat messages:", error);
+    throw error;
+  }
 };
 
 
-// --- User-to-User Chat Management ---
-export const getUserChatMessages = (chatId: string): UserChatMessage[] => {
-  const chatKey = getUserChatKey(chatId);
-  const messagesJson = getLocalStorageItem(chatKey);
-  return messagesJson ? JSON.parse(messagesJson) : [];
-};
-
-export const saveUserChatMessage = (chatId: string, message: UserChatMessage): void => {
-  const chatKey = getUserChatKey(chatId);
-  const messages = getUserChatMessages(chatId);
-  messages.push(message);
-  setLocalStorageItem(chatKey, JSON.stringify(messages));
-};
-
-export const clearUserChatMessages = (chatId: string): void => {
-  const chatKey = getUserChatKey(chatId);
-  removeLocalStorageItem(chatKey);
-};
-
-// Helper to generate a consistent chatId for two users
+// --- User-to-User Chat Message Management ---
 export const generateUserChatId = (userId1: string, userId2: string): string => {
   return [userId1, userId2].sort().join('_');
+};
+
+export const saveUserChatMessage = async (chatId: string, message: Omit<UserChatMessage, 'id' | 'timestamp'> & { timestamp?: any }): Promise<string> => {
+  if (!chatId) throw new Error("Chat ID is required.");
+  const messagesRef = ref(db, `${USER_CHAT_MESSAGES_PATH_BASE}/${chatId}`);
+  const newMessageRef = push(messagesRef);
+  try {
+    // Use serverTimestamp if timestamp isn't provided, otherwise use the provided one (ensure it's a string or number for RTDB)
+    const messageToSave = {
+      ...message,
+      timestamp: message.timestamp || serverTimestamp(),
+    };
+    await set(newMessageRef, messageToSave);
+    return newMessageRef.key!;
+  } catch (error) {
+    console.error("Error saving user chat message:", error);
+    throw error;
+  }
+};
+
+export const getUserChatMessages = (chatId: string, callback: (messages: UserChatMessage[]) => void, limit: number = 50): (() => void) => {
+  if (!chatId) {
+    callback([]);
+    return () => {};
+  }
+  const messagesQuery = query(ref(db, `${USER_CHAT_MESSAGES_PATH_BASE}/${chatId}`), orderByChild('timestamp'), limitToLast(limit));
+  
+  const listener = onValue(messagesQuery, (snapshot) => {
+    const messagesData = snapshot.val();
+    if (messagesData) {
+      const messagesList = Object.entries(messagesData).map(([id, data]) => ({ id, ...(data as Omit<UserChatMessage, 'id'>) }));
+      callback(messagesList);
+    } else {
+      callback([]);
+    }
+  }, (error) => {
+    console.error("Error fetching user chat messages:", error);
+    callback([]);
+  });
+  return () => off(messagesQuery, 'value', listener);
+};
+
+export const clearUserChatMessages = async (chatId: string): Promise<void> => {
+  if (!chatId) return;
+  const messagesRef = ref(db, `${USER_CHAT_MESSAGES_PATH_BASE}/${chatId}`);
+  try {
+    await remove(messagesRef);
+  } catch (error) {
+    console.error("Error clearing user chat messages:", error);
+    throw error;
+  }
 };

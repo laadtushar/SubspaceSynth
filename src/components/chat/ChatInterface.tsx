@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardContent
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { getChatMessages, saveChatMessage, clearChatMessages as clearChatMessagesFromStore } from '@/lib/store';
+import { getChatMessages, saveChatMessage, clearChatMessages as clearChatMessagesFromStore } from '@/lib/store'; // Updated functions
 import { generateResponse } from '@/ai/flows/generate-response';
 import { formatDistanceToNow } from 'date-fns';
 import Image from 'next/image';
@@ -32,9 +32,17 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let unsubscribeMessages: (() => void) | undefined;
     if (userId) {
-      setMessages(getChatMessages(userId, persona.id));
+      unsubscribeMessages = getChatMessages(userId, persona.id, (fetchedMessages) => {
+        setMessages(fetchedMessages);
+      });
     }
+    return () => {
+      if (unsubscribeMessages) {
+        unsubscribeMessages();
+      }
+    };
   }, [persona.id, userId]);
 
   useEffect(() => {
@@ -47,64 +55,65 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
     e?.preventDefault();
     if (!userInput.trim() || !userId) return;
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      personaId: persona.id, // This is fine, as personaId is part of the message data
+    const userMessageData: Omit<ChatMessage, 'id'> = {
       sender: 'user',
       text: userInput,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(), // Client-side timestamp, Firebase will use server one
       context: contextInput, 
     };
+    
+    // Optimistically add user message - this will be replaced by DB listener if structure is different
+    // For now, let's assume the DB listener will handle it.
+    // setMessages((prev) => [...prev, {id: 'temp-user', ...userMessageData}]); 
 
-    setMessages((prev) => [...prev, userMessage]);
-    saveChatMessage(userId, persona.id, userMessage);
     setUserInput('');
-    // contextInput is intentionally kept
-
     setIsLoading(true);
+
     try {
+      await saveChatMessage(userId, persona.id, userMessageData); // Save user message to DB
+
       const aiResponse = await generateResponse({
         persona: persona.personaDescription || `A persona named ${persona.name}`,
-        input: userMessage.text,
+        input: userMessageData.text,
         context: contextInput || 'General conversation',
       });
 
-      const aiMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        personaId: persona.id,
+      const aiMessageData: Omit<ChatMessage, 'id'> = {
         sender: 'ai',
         text: aiResponse.response,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(), // Client-side timestamp
         context: contextInput,
       };
-      setMessages((prev) => [...prev, aiMessage]);
-      saveChatMessage(userId, persona.id, aiMessage);
+      await saveChatMessage(userId, persona.id, aiMessageData); // Save AI message to DB
     } catch (error) {
-      console.error('Failed to get AI response:', error);
+      console.error('Failed to get AI response or save message:', error);
       toast({
         title: 'Error',
-        description: 'AI failed to respond. Please try again.',
+        description: 'AI failed to respond or save message. Please try again.',
         variant: 'destructive',
       });
-       const errorAiMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        personaId: persona.id,
+       // Optionally, save an error message from AI to DB
+       const errorAiMessageData: Omit<ChatMessage, 'id'> = {
         sender: 'ai',
         text: "I'm sorry, I encountered an error and couldn't respond. Please try again.",
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errorAiMessage]);
-      if (userId) saveChatMessage(userId, persona.id, errorAiMessage);
+      if (userId) await saveChatMessage(userId, persona.id, errorAiMessageData);
     } finally {
       setIsLoading(false);
     }
   };
   
-  const clearChat = () => {
+  const handleClearChat = async () => {
     if (!userId) return;
-    clearChatMessagesFromStore(userId, persona.id);
-    setMessages([]);
-    toast({title: "Chat Cleared", description: "The chat history for this persona has been cleared."});
+    try {
+      await clearChatMessagesFromStore(userId, persona.id);
+      // Messages state will be updated by onValue listener
+      toast({title: "Chat Cleared", description: "The chat history for this persona has been cleared."});
+    } catch (error) {
+      console.error("Error clearing chat:", error);
+      toast({title: "Error", description: "Could not clear chat.", variant: "destructive"});
+    }
   };
 
   return (
@@ -121,7 +130,7 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
           />
           <CardTitle className="text-lg font-semibold">Chat with {persona.name}</CardTitle>
         </div>
-        <Button variant="outline" size="sm" onClick={clearChat} title="Clear chat history" disabled={!userId}>
+        <Button variant="outline" size="sm" onClick={handleClearChat} title="Clear chat history" disabled={!userId || messages.length === 0}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </CardHeader>
@@ -150,12 +159,11 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
               >
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                 <p className={`text-xs mt-1 ${msg.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                   {formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true })}
+                   {typeof msg.timestamp === 'number' ? formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true }) : (typeof msg.timestamp === 'string' ? formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true }) : 'sending...')}
                 </p>
               </div>
               {msg.sender === 'user' && (
                 <Avatar className="h-8 w-8">
-                  {/* User avatar can be customized if user profiles have images */}
                   <AvatarFallback>U</AvatarFallback>
                 </Avatar>
               )}
