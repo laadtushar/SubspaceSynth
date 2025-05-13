@@ -52,10 +52,8 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   const { userId } = useAuth(); // Should match currentUser.id
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
-  // Ensure chatId is generated only when currentUser.id and contactUser.id are available
   const chatId = currentUser?.id && contactUser?.id ? generateUserChatId(currentUser.id, contactUser.id) : null;
 
-  // Load initial messages and derived persona
   useEffect(() => {
     let unsubscribeMessages: (() => void) | undefined;
     
@@ -108,7 +106,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
           ...existingPersona,
           personaDescription: aiResponse.personaDescription,
           sourceChatMessagesCount: contactMessagesFromState.length,
-          createdAt: new Date().toISOString(), // Or update an 'updatedAt' field
+          createdAt: existingPersona.createdAt, // Keep original creation, or use an updatedAt field
         };
       } else {
         personaToSave = {
@@ -156,11 +154,9 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
     try {
       await saveUserChatMessage(chatId, messageData);
       setUserInput('');
-      // Messages state is updated by the onValue listener
-
-      // Logic for persona update (simplified)
+      
       const contactMessagesCount = messages.filter(msg => msg.senderUserId === contactUser.id).length;
-      if (contactMessagesCount > 0 && contactMessagesCount % MESSAGES_PER_PERSONA_UPDATE === 0) {
+      if (contactMessagesCount > 0 && (messages.length + 1) % MESSAGES_PER_PERSONA_UPDATE === 0) { // Check total messages now
          await updateOrCreateChatDerivedPersona();
       }
 
@@ -176,7 +172,6 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
     if (!userId || !chatId) return;
     try {
       await clearUserChatMessages(chatId);
-      // Messages state will be updated by onValue listener to an empty array
       toast({title: "Chat Cleared", description: `The chat history with ${contactUser.name} has been cleared.`});
     } catch (error) {
       console.error("Error clearing chat:", error);
@@ -185,17 +180,21 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   };
   
   const handlePracticeModeToggle = async (checked: boolean) => {
-    if (checked && !chatDerivedPersona) {
-       await updateOrCreateChatDerivedPersona(); // Attempt to create if not exists
-       if (!chatDerivedPersona && !(await getChatDerivedPersona(userId!, chatId!, contactUser.id))) { // Re-check after attempt
-        toast({
-            title: "Persona Not Ready",
-            description: `A chat persona for ${contactUser.name} could not be generated yet. Send some messages or click "Update Persona" first.`,
-            variant: "destructive",
-        });
-        setIsPracticeMode(false);
-        return;
-       }
+    if (checked) {
+        let currentPersona = chatDerivedPersona;
+        if (!currentPersona) {
+            await updateOrCreateChatDerivedPersona();
+            currentPersona = await getChatDerivedPersona(userId!, chatId!, contactUser.id); // Re-fetch
+        }
+        if (!currentPersona || !currentPersona.personaDescription) { // Also check if description exists
+            toast({
+                title: "Persona Not Ready",
+                description: `A chat persona for ${contactUser.name} could not be generated or is incomplete. Send some messages or click "Update Persona" first.`,
+                variant: "destructive",
+            });
+            setIsPracticeMode(false);
+            return;
+        }
     }
     setIsPracticeMode(checked);
   };
@@ -218,6 +217,18 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
   if (!userId || !chatId) {
     return <div className="flex justify-center items-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading chat...</p></div>;
   }
+
+  const formatTimestamp = (timestamp: string | number | undefined): string => {
+    if (timestamp === undefined || timestamp === null) return 'sending...';
+    try {
+      // Firebase server timestamps are numbers (milliseconds since epoch)
+      // ISO strings might also be used if client sets them before server does
+      const date = new Date(timestamp);
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (e) {
+      return 'invalid date';
+    }
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -261,7 +272,6 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
                   id="practice-mode-switch"
                   checked={isPracticeMode}
                   onCheckedChange={handlePracticeModeToggle}
-                  // Enable if a persona exists or if trying to switch to practice mode (which will attempt generation)
                   disabled={isGeneratingPersona} 
                 />
                 <Label htmlFor="practice-mode-switch" className="text-sm flex items-center gap-1">
@@ -303,7 +313,7 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
                     >
                       <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                       <p className={`text-xs mt-1 ${msg.senderUserId === currentUser.id ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                        {typeof msg.timestamp === 'number' ? formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true }) : 'sending...'}
+                        {formatTimestamp(msg.timestamp)}
                       </p>
                     </div>
                     {msg.senderUserId === currentUser.id && (
@@ -325,6 +335,12 @@ export default function UserChatInterface({ contactUser, currentUser }: UserChat
                   onChange={(e) => setUserInput(e.target.value)}
                   className="flex-grow"
                   disabled={isSendingMessage}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
                 />
                 <Button type="submit" disabled={isSendingMessage || !userInput.trim()}>
                   {isSendingMessage ? (

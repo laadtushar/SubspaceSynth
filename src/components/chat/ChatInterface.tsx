@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Card, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardContent
+import { Card, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'; 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { getChatMessages, saveChatMessage, clearChatMessages as clearChatMessagesFromStore } from '@/lib/store'; // Updated functions
+import { getChatMessages, saveChatMessage, clearChatMessages as clearChatMessagesFromStore } from '@/lib/store'; 
 import { generateResponse } from '@/ai/flows/generate-response';
 import { formatDistanceToNow } from 'date-fns';
 import Image from 'next/image';
@@ -34,9 +34,11 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
   useEffect(() => {
     let unsubscribeMessages: (() => void) | undefined;
     if (userId) {
+      // Fetch initial messages, limit to 50 for performance.
+      // For "interaction stats", we might need all messages or a different mechanism.
       unsubscribeMessages = getChatMessages(userId, persona.id, (fetchedMessages) => {
         setMessages(fetchedMessages);
-      });
+      }, 50); // Limit initial load
     }
     return () => {
       if (unsubscribeMessages) {
@@ -55,22 +57,17 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
     e?.preventDefault();
     if (!userInput.trim() || !userId) return;
 
-    const userMessageData: Omit<ChatMessage, 'id'> = {
+    const userMessageData: Omit<ChatMessage, 'id' | 'timestamp'> = { // timestamp will be server-generated
       sender: 'user',
       text: userInput,
-      timestamp: new Date().toISOString(), // Client-side timestamp, Firebase will use server one
       context: contextInput, 
     };
     
-    // Optimistically add user message - this will be replaced by DB listener if structure is different
-    // For now, let's assume the DB listener will handle it.
-    // setMessages((prev) => [...prev, {id: 'temp-user', ...userMessageData}]); 
-
     setUserInput('');
     setIsLoading(true);
 
     try {
-      await saveChatMessage(userId, persona.id, userMessageData); // Save user message to DB
+      await saveChatMessage(userId, persona.id, userMessageData); 
 
       const aiResponse = await generateResponse({
         persona: persona.personaDescription || `A persona named ${persona.name}`,
@@ -78,13 +75,12 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
         context: contextInput || 'General conversation',
       });
 
-      const aiMessageData: Omit<ChatMessage, 'id'> = {
+      const aiMessageData: Omit<ChatMessage, 'id' | 'timestamp'> = { // timestamp will be server-generated
         sender: 'ai',
         text: aiResponse.response,
-        timestamp: new Date().toISOString(), // Client-side timestamp
         context: contextInput,
       };
-      await saveChatMessage(userId, persona.id, aiMessageData); // Save AI message to DB
+      await saveChatMessage(userId, persona.id, aiMessageData); 
     } catch (error) {
       console.error('Failed to get AI response or save message:', error);
       toast({
@@ -92,11 +88,9 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
         description: 'AI failed to respond or save message. Please try again.',
         variant: 'destructive',
       });
-       // Optionally, save an error message from AI to DB
-       const errorAiMessageData: Omit<ChatMessage, 'id'> = {
+       const errorAiMessageData: Omit<ChatMessage, 'id' | 'timestamp'> = {
         sender: 'ai',
         text: "I'm sorry, I encountered an error and couldn't respond. Please try again.",
-        timestamp: new Date().toISOString(),
       };
       if (userId) await saveChatMessage(userId, persona.id, errorAiMessageData);
     } finally {
@@ -108,13 +102,25 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
     if (!userId) return;
     try {
       await clearChatMessagesFromStore(userId, persona.id);
-      // Messages state will be updated by onValue listener
       toast({title: "Chat Cleared", description: "The chat history for this persona has been cleared."});
     } catch (error) {
       console.error("Error clearing chat:", error);
       toast({title: "Error", description: "Could not clear chat.", variant: "destructive"});
     }
   };
+  
+  const formatTimestamp = (timestamp: string | number | undefined): string => {
+    if (timestamp === undefined || timestamp === null) return 'sending...';
+    try {
+      // Firebase server timestamps are numbers (milliseconds since epoch)
+      // ISO strings might also be used if client sets them before server does
+      const date = new Date(timestamp);
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (e) {
+      return 'invalid date';
+    }
+  };
+
 
   return (
     <Card className="h-full flex flex-col shadow-xl">
@@ -159,11 +165,12 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
               >
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
                 <p className={`text-xs mt-1 ${msg.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                   {typeof msg.timestamp === 'number' ? formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true }) : (typeof msg.timestamp === 'string' ? formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true }) : 'sending...')}
+                   {formatTimestamp(msg.timestamp)}
                 </p>
               </div>
               {msg.sender === 'user' && (
                 <Avatar className="h-8 w-8">
+                  {/* Current user avatar could be fetched from useAuth().userProfile if needed */}
                   <AvatarFallback>U</AvatarFallback>
                 </Avatar>
               )}
@@ -197,7 +204,7 @@ export default function ChatInterface({ persona }: ChatInterfaceProps) {
              <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setContextInput('')} title="Clear context" disabled={!userId}>
+                  <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setContextInput('')} title="Clear context" disabled={!userId || !contextInput}>
                     <Info className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </TooltipTrigger>

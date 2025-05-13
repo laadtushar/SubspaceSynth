@@ -52,7 +52,6 @@ export const getRegisteredUserByEmailFromDB = async (email: string): Promise<Use
   } catch (error: any) {
     console.error(`Error fetching user by email ${email}:`, error.message);
 
-    // Specific check for "Index not defined" error
     if (error.message && typeof error.message === 'string' && error.message.includes("Index not defined")) {
       console.error(
         "\n===================================================================================\n" +
@@ -128,7 +127,6 @@ export const addContactByEmail = async (currentUserId: string, email: string): P
 
   try {
     await set(contactEntryRef, newContact);
-    // Optionally, add a reciprocal contact entry for the other user (or handle via friend requests)
     return newContact;
   } catch (error) {
     console.error(`Error adding contact ${email}:`, error);
@@ -142,7 +140,7 @@ export const getUserContacts = (currentUserId: string, callback: (contacts: User
     return () => {};
   }
   const contactsRefPath = `${USER_CONTACTS_PATH_BASE}/${currentUserId}`;
-  const contactsQuery = query(ref(db, contactsRefPath), orderByChild('name')); // Example: order by name
+  const contactsQuery = query(ref(db, contactsRefPath), orderByChild('name')); 
 
   const listener = onValue(contactsQuery, (snapshot) => {
     const contactsData = snapshot.val();
@@ -157,7 +155,7 @@ export const getUserContacts = (currentUserId: string, callback: (contacts: User
     callback([]);
   });
 
-  return () => off(contactsQuery, 'value', listener); // Detach listener
+  return () => off(contactsQuery, 'value', listener); 
 };
 
 
@@ -211,12 +209,11 @@ export const getPersonaById = async (userId: string, personaId: string): Promise
 export const deletePersona = async (userId: string, personaId: string): Promise<void> => {
   if (!userId || !personaId) throw new Error("User ID and Persona ID are required.");
   
-  const persona = await getPersonaById(userId, personaId); // Fetch to check originType
+  const persona = await getPersonaById(userId, personaId); 
 
   const personaRef = ref(db, `${PERSONAS_PATH_BASE}/${userId}/${personaId}`);
   try {
     await remove(personaRef);
-    // If it's a user-created persona, also delete its associated AI chats
     if (persona && persona.originType === 'user-created') {
       const aiChatMessagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
       await remove(aiChatMessagesRef);
@@ -227,13 +224,9 @@ export const deletePersona = async (userId: string, personaId: string): Promise<
   }
 };
 
-// Specific function to get a chat-derived persona (used by UserChatInterface)
 export const getChatDerivedPersona = async (userId: string, derivedFromChatId: string, derivedRepresentingUserId: string): Promise<Persona | null> => {
   if (!userId) return null;
   const personasRefPath = `${PERSONAS_PATH_BASE}/${userId}`;
-  // Firebase RTDB query for multiple conditions is complex.
-  // It's often easier to fetch and filter or structure data for direct lookup.
-  // Querying by one field and filtering by others:
   const q = query(ref(db, personasRefPath), orderByChild('derivedFromChatId'), equalTo(derivedFromChatId));
   try {
     const snapshot = await get(q);
@@ -256,22 +249,34 @@ export const getChatDerivedPersona = async (userId: string, derivedFromChatId: s
 export const saveChatMessage = async (userId: string, personaId: string, message: Omit<ChatMessage, 'id'>): Promise<string> => {
   if (!userId || !personaId) throw new Error("User ID and Persona ID are required.");
   const messagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
-  const newMessageRef = push(messagesRef); // Generates a unique ID
+  const newMessageRef = push(messagesRef); 
   try {
-    await set(newMessageRef, { ...message, timestamp: serverTimestamp() }); // Use serverTimestamp for consistency
-    return newMessageRef.key!; // Return the generated message ID
+    await set(newMessageRef, { ...message, timestamp: serverTimestamp() }); 
+    return newMessageRef.key!; 
   } catch (error) {
     console.error("Error saving AI chat message:", error);
     throw error;
   }
 };
 
-export const getChatMessages = (userId: string, personaId: string, callback: (messages: ChatMessage[]) => void, limit: number = 50): (() => void) => {
+export const getChatMessages = (
+  userId: string, 
+  personaId: string, 
+  callback: (messages: ChatMessage[]) => void, 
+  limit: number | null = 50 // null limit fetches all messages
+): (() => void) => {
   if (!userId || !personaId) {
     callback([]);
     return () => {};
   }
-  const messagesQuery = query(ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`), orderByChild('timestamp'), limitToLast(limit));
+  
+  let messagesQuery;
+  const path = `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`;
+  if (limit === null) {
+    messagesQuery = query(ref(db, path), orderByChild('timestamp'));
+  } else {
+    messagesQuery = query(ref(db, path), orderByChild('timestamp'), limitToLast(limit));
+  }
   
   const listener = onValue(messagesQuery, (snapshot) => {
     const messagesData = snapshot.val();
@@ -287,6 +292,27 @@ export const getChatMessages = (userId: string, personaId: string, callback: (me
   });
   return () => off(messagesQuery, 'value', listener);
 };
+
+// New function for persona export: Fetches ALL messages for a persona
+export const getAllChatMessagesForPersona = async (userId: string, personaId: string): Promise<ChatMessage[]> => {
+  if (!userId || !personaId) return [];
+  
+  const messagesRef = ref(db, `${AI_CHAT_MESSAGES_PATH_BASE}/${userId}/${personaId}`);
+  const messagesQuery = query(messagesRef, orderByChild('timestamp'));
+  
+  try {
+    const snapshot = await get(messagesQuery);
+    if (snapshot.exists()) {
+      const messagesData = snapshot.val();
+      return Object.entries(messagesData).map(([id, data]) => ({ id, ...(data as Omit<ChatMessage, 'id'>) }));
+    }
+    return [];
+  } catch (error) {
+    console.error("Error fetching all AI chat messages for persona:", error);
+    return [];
+  }
+};
+
 
 export const clearChatMessages = async (userId: string, personaId: string): Promise<void> => {
   if (!userId || !personaId) return;
@@ -310,7 +336,6 @@ export const saveUserChatMessage = async (chatId: string, message: Omit<UserChat
   const messagesRef = ref(db, `${USER_CHAT_MESSAGES_PATH_BASE}/${chatId}`);
   const newMessageRef = push(messagesRef);
   try {
-    // Use serverTimestamp if timestamp isn't provided, otherwise use the provided one (ensure it's a string or number for RTDB)
     const messageToSave = {
       ...message,
       timestamp: message.timestamp || serverTimestamp(),
@@ -355,4 +380,3 @@ export const clearUserChatMessages = async (chatId: string): Promise<void> => {
     throw error;
   }
 };
-

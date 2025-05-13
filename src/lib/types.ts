@@ -1,4 +1,4 @@
-import type { AnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
+import type { AnalyzePersonaInsightsOutput as OriginalAnalyzePersonaInsightsOutput } from '@/ai/flows/analyze-persona-insights';
 
 export interface UserProfile {
   id: string; // Firebase UID
@@ -9,6 +9,29 @@ export interface UserProfile {
   createdAt: string; // ISO date string
 }
 
+// Extended AnalyzePersonaInsightsOutput for feature #4
+export interface InteractionStatsSchema {
+  totalMessages: number;
+  userMessagesCount: number;
+  aiMessagesCount: number;
+  averageMessagesPerDay?: number; // Optional, could be complex to calculate accurately
+  firstMessageDate?: string; // ISO date string
+  lastMessageDate?: string; // ISO date string
+}
+
+export interface LinguisticFeaturesSchema {
+  wordCount: number;
+  uniqueWordCount: number;
+  averageSentenceLength: number;
+  frequentPhrases?: string[]; // Top 3-5
+}
+
+export interface AnalyzePersonaInsightsOutput extends OriginalAnalyzePersonaInsightsOutput {
+  linguisticFeatures?: LinguisticFeaturesSchema;
+  interactionStats?: InteractionStatsSchema; // Primarily for AI chat logs, not seed history
+}
+
+
 export interface Persona {
   id: string;
   name: string; 
@@ -18,45 +41,42 @@ export interface Persona {
 
   originType: 'user-created' | 'chat-derived';
 
+  // For 'user-created' personas (seed data)
   chatHistory?: string; 
   mbti?: string;
   age?: number;
   gender?: string;
-  personalityInsights?: AnalyzePersonaInsightsOutput; // Keep this structure
+  
+  // This will store the enhanced analysis output
+  personalityInsights?: AnalyzePersonaInsightsOutput; 
 
   // For 'chat-derived' personas
   derivedFromChatId?: string; 
   derivedRepresentingUserId?: string;  
-  // sourceChatMessages might be too large to store directly in the persona object in Firebase.
-  // Consider storing only a summary or reference, or fetching them on demand.
-  // For now, let's assume it might be a smaller set or a reference.
-  sourceChatMessagesCount?: number; // Example: store count instead of full messages
+  sourceChatMessagesCount?: number; 
 }
 
 export interface ChatMessage { // For AI Persona chats
   id: string;
-  // personaId: string; // No longer needed if messages are nested under personaId in DB
   sender: 'user' | 'ai';
   text: string;
-  timestamp: string; // ISO date string
+  timestamp: string; // ISO date string or number (Firebase server timestamp will be number)
   context?: string; 
 }
 
 export interface UserChatMessage { // For User-to-User chats
-  id: string; // Message ID
-  // chatId is the parent key in DB: user_chat_messages/${chatId}/${messageId}
+  id: string; 
   senderUserId: string; 
   text: string;
-  timestamp: string; // ISO date string
+  timestamp: string | number; 
 }
 
-export interface UserContact { // Represents a user in another user's contact list
-  id: string; // UID of the contact user
-  name: string; // Name of the contact, denormalized for quick display
-  avatarUrl?: string; // Avatar of the contact, denormalized
-  addedAt: string; // ISO date string when contact was added
+export interface UserContact { 
+  id: string; 
+  name: string; 
+  avatarUrl?: string; 
+  addedAt: string; 
 }
-
 
 export const MBTI_TYPES = [
   "ISTJ", "ISFJ", "INFJ", "INTJ",
@@ -69,3 +89,10 @@ export type MBTIType = typeof MBTI_TYPES[number];
 
 export const GENDERS = ["Male", "Female", "Non-binary", "Other", "Prefer not to say"] as const;
 export type Gender = typeof GENDERS[number];
+
+// For feature #1: Export Persona
+export interface ExportedPersonaData {
+  personaDetails: Persona;
+  chatMessagesWithAI?: ChatMessage[]; // Messages from AI chat interface
+  // Seed chat history is part of personaDetails.chatHistory if originType is 'user-created'
+}
