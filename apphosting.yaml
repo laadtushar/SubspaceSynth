@@ -1,0 +1,88 @@
+runConfig:
+  runtime: nodejs20
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 100
+
+env:
+  # Public Firebase config (safe to expose)
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyDWXUBW_FNhwuA0bfnEt5TTkWsbtpxRs48"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "personasim-s9i02.firebaseapp.com"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "personasim-s9i02"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "personasim-s9i02.firebasestorage.app"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "1090929058776"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:1090929058776:web:5b316edd86115e603fc8ad"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_DATABASE_URL
+    value: "https://personasim-s9i02-default-rtdb.firebaseio.com"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    value: "pk_test_51ROGMSHYwIaK1sNuI8uuwMHzhmlSKzIeylKbhRI2p7qfXJOf9UcJLdJY55JpZkOnavQSRXcYnqQBRuDe0XBlOh4v008PwnhZQd"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_ID_PERSONA_SLOT
+    value: "price_1ROGcyHYwIaK1sNu8XZ7Euul"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_APP_URL
+    value: "https://subspacesynth.com"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: STRIPE_PRICE_ID_PERSONA_SLOT
+    value: "price_1ROGcyHYwIaK1sNu8XZ7Euul"
+    availability:
+      - RUNTIME
+
+  # Secrets - stored in Secret Manager
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME
+
+  - variable: STRIPE_SECRET_KEY
+    secret: STRIPE_SECRET_KEY
+    availability:
+      - RUNTIME
+
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET
+    availability:
+      - RUNTIME

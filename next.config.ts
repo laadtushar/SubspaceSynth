@@ -1,13 +1,9 @@
 
-import type {NextConfig} from 'next';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
   images: {
     remotePatterns: [
@@ -19,17 +15,24 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'lh3.googleusercontent.com', // For Google profile pictures
+        hostname: 'lh3.googleusercontent.com',
         port: '',
         pathname: '/**',
       },
     ],
   },
-  // Ensure environment variables are available on the client-side if prefixed with NEXT_PUBLIC_
-  // No specific configuration needed here for that, Next.js handles it automatically.
-  // Just make sure they are set in your .env.local or environment.
+  // Prevent webpack from bundling server-only Node.js packages (Genkit/OpenTelemetry)
+  serverExternalPackages: [
+    '@opentelemetry/sdk-node',
+    '@opentelemetry/instrumentation',
+    'require-in-the-middle',
+    'import-in-the-middle',
+    'express',
+    'genkit',
+    '@genkit-ai/core',
+    '@genkit-ai/googleai',
+    '@genkit-ai/next',
+  ],
 };
 
 export default nextConfig;
-
-    
