@@ -7,8 +7,8 @@
  * - GenerateResponseOutput - The return type for the generateResponse function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const GenerateResponseInputSchema = z.object({
   persona: z.string().describe('The AI persona to use for generating the response.'),
@@ -28,8 +28,8 @@ export async function generateResponse(input: GenerateResponseInput): Promise<Ge
 
 const prompt = ai.definePrompt({
   name: 'generateResponsePrompt',
-  input: {schema: GenerateResponseInputSchema},
-  output: {schema: GenerateResponseOutputSchema},
+  input: { schema: GenerateResponseInputSchema },
+  output: { schema: GenerateResponseOutputSchema },
   prompt: `You are an AI persona simulating a real person. Your persona is described as follows: {{{persona}}}.\n\nGiven the following input from the user: {{{input}}}.\n\nAnd the following context: {{{context}}}.\n\nGenerate a response as the AI persona would:`,
 });
 
@@ -40,7 +40,10 @@ const generateResponseFlow = ai.defineFlow(
     outputSchema: GenerateResponseOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    const { output } = await prompt(input);
+    if (!output) {
+      throw new Error('AI model returned no output. Please try again.');
+    }
+    return output;
   }
 );

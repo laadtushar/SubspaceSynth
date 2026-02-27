@@ -7,8 +7,8 @@
  * - DevelopPersonaPersonalityOutput - The return type for the developPersonaPersonality function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const DevelopPersonaPersonalityInputSchema = z.object({
   currentPersonaDescription: z
@@ -44,8 +44,8 @@ export async function developPersonaPersonality(
 
 const prompt = ai.definePrompt({
   name: 'developPersonaPersonalityPrompt',
-  input: {schema: DevelopPersonaPersonalityInputSchema},
-  output: {schema: DevelopPersonaPersonalityOutputSchema},
+  input: { schema: DevelopPersonaPersonalityInputSchema },
+  output: { schema: DevelopPersonaPersonalityOutputSchema },
   prompt: `You are an AI persona development assistant. You will be given an existing persona description and a set of instructions on how to modify or evolve that persona.
 Your task is to rewrite the persona description based on these instructions, maintaining the core identity where appropriate, and incorporating the requested changes to its traits, communication style, or background.
 Focus on generating a rich, detailed, and coherent new persona description.
@@ -71,7 +71,10 @@ const developPersonaPersonalityFlow = ai.defineFlow(
     outputSchema: DevelopPersonaPersonalityOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    const { output } = await prompt(input);
+    if (!output) {
+      throw new Error('AI model returned no output. Please try again.');
+    }
+    return output;
   }
 );

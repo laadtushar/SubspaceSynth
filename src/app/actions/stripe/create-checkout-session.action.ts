@@ -7,7 +7,7 @@
  * Otherwise, it simulates a successful payment and updates the user's quota directly.
  */
 
-import { auth } from '@/lib/firebase'; 
+
 import { updateUserProfileInDB, getUserProfileById } from '@/lib/store';
 import { FREE_PERSONA_LIMIT, PERSONAS_PER_PURCHASE, STRIPE_CURRENCY } from '@/lib/constants';
 import { stripe, isStripeEnabled } from '@/lib/stripe'; // isStripeEnabled here refers to server-side SDK readiness
@@ -15,8 +15,8 @@ import { stripe, isStripeEnabled } from '@/lib/stripe'; // isStripeEnabled here 
 interface CheckoutSessionResult {
   success: boolean;
   message: string;
-  sessionId?: string; 
-  redirectUrl?: string; 
+  sessionId?: string;
+  redirectUrl?: string;
   newQuota?: number; // Only for simulation
 }
 
@@ -48,17 +48,17 @@ export async function createCheckoutSessionAction(
         line_items: [
           {
             price: stripePriceId,
-            quantity: 1, 
+            quantity: 1,
           },
         ],
         mode: 'payment',
         success_url: `${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${appUrl}/payment/cancel`,
-        client_reference_id: userId, 
+        client_reference_id: userId,
         metadata: {
           userId: userId,
           item: `Purchase of ${PERSONAS_PER_PURCHASE} persona slot(s)`,
-          purchaseUnits: PERSONAS_PER_PURCHASE.toString(), 
+          purchaseUnits: PERSONAS_PER_PURCHASE.toString(),
         }
       });
 
@@ -66,11 +66,11 @@ export async function createCheckoutSessionAction(
         return { success: false, message: 'Stripe session created but no redirect URL was returned.' };
       }
 
-      return { 
-        success: true, 
-        message: 'Stripe Checkout session created successfully.', 
-        sessionId: session.id, 
-        redirectUrl: session.url 
+      return {
+        success: true,
+        message: 'Stripe Checkout session created successfully.',
+        sessionId: session.id,
+        redirectUrl: session.url
       };
 
     } catch (error: any) {
@@ -83,15 +83,15 @@ export async function createCheckoutSessionAction(
     if (!isStripeEnabled) simulationMessage = 'Stripe server-side SDK not enabled. Simulating payment.';
     else if (!stripe) simulationMessage = 'Stripe instance not available. Simulating payment.';
     else if (!stripePriceId) simulationMessage = 'Stripe Price ID not configured. Simulating payment.';
-    
+
     console.log(`${simulationMessage} User: ${userId}.`);
 
     try {
       const currentQuota = userProfile.personaQuota === undefined ? FREE_PERSONA_LIMIT : userProfile.personaQuota;
       const newQuota = currentQuota + PERSONAS_PER_PURCHASE;
-      
+
       await updateUserProfileInDB(userId, { personaQuota: newQuota });
-      
+
       console.log(`User ${userId} quota updated to ${newQuota} (simulated payment).`);
       return {
         success: true,

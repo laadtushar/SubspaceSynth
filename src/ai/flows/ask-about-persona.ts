@@ -7,8 +7,8 @@
  * - AskAboutPersonaOutput - The return type for the askAboutPersona function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const AskAboutPersonaInputSchema = z.object({
   personaDescription: z
@@ -33,8 +33,8 @@ export async function askAboutPersona(
 
 const prompt = ai.definePrompt({
   name: 'askAboutPersonaPrompt',
-  input: {schema: AskAboutPersonaInputSchema},
-  output: {schema: AskAboutPersonaOutputSchema},
+  input: { schema: AskAboutPersonaInputSchema },
+  output: { schema: AskAboutPersonaOutputSchema },
   prompt: `You are an insightful AI assistant. You have been provided with a description of an AI persona and a question about that persona.
 Your task is to provide a thoughtful and relevant answer to the question based *only* on the provided persona description.
 Do not invent information not present in the description. If the question cannot be answered from the description, state that.
@@ -56,9 +56,12 @@ const askAboutPersonaFlow = ai.defineFlow(
   },
   async input => {
     if (!input.personaDescription || input.personaDescription.trim() === '') {
-        return { answer: "The persona description is missing or empty, so I cannot answer questions about it." };
+      return { answer: "The persona description is missing or empty, so I cannot answer questions about it." };
     }
-    const {output} = await prompt(input);
-    return output!;
+    const { output } = await prompt(input);
+    if (!output) {
+      throw new Error('AI model returned no output. Please try again.');
+    }
+    return output;
   }
 );

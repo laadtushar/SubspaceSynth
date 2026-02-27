@@ -5,6 +5,11 @@ runConfig:
   concurrency: 100
 
 env:
+  # Disable Genkit OpenTelemetry to prevent worker_threads crash in serverless
+  - variable: GENKIT_TELEMETRY_SERVER_DISABLED
+    value: "1"
+    availability:
+      - RUNTIME
   # Public Firebase config (safe to expose)
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: "AIzaSyDWXUBW_FNhwuA0bfnEt5TTkWsbtpxRs48"

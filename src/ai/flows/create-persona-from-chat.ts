@@ -8,8 +8,8 @@
  * - CreatePersonaFromChatOutput - The return type for the createPersonaFromChat function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const CreatePersonaFromChatInputSchema = z.object({
   chatHistory: z
@@ -35,8 +35,8 @@ export async function createPersonaFromChat(
 
 const prompt = ai.definePrompt({
   name: 'createPersonaFromChatPrompt',
-  input: {schema: CreatePersonaFromChatInputSchema},
-  output: {schema: CreatePersonaFromChatOutputSchema},
+  input: { schema: CreatePersonaFromChatInputSchema },
+  output: { schema: CreatePersonaFromChatOutputSchema },
   prompt: `You are an expert in analyzing communication styles from chat histories.
 
   Analyze the following chat history and create a detailed description of the persona, including their communication style, tone, common phrases, and any other relevant characteristics.
@@ -51,7 +51,10 @@ const createPersonaFromChatFlow = ai.defineFlow(
     outputSchema: CreatePersonaFromChatOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    const { output } = await prompt(input);
+    if (!output) {
+      throw new Error('AI model returned no output. Please try again.');
+    }
+    return output;
   }
 );
