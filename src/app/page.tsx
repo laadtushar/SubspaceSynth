@@ -36,7 +36,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!loadingAuth && !user) {
       router.push('/login');
-      setPageLoading(false); 
+      setPageLoading(false);
     }
   }, [user, loadingAuth, router]);
 
@@ -54,14 +54,14 @@ export default function DashboardPage() {
       }
       grouped[category].push(persona);
     });
-    
+
     // Sort categories: Uncategorized last, others alphabetically
     const sortedCategories = Object.keys(grouped).sort((a, b) => {
       if (a === 'Uncategorized') return 1;
       if (b === 'Uncategorized') return -1;
       return a.localeCompare(b);
     });
-    
+
     const result: GroupedPersonas = {};
     for (const category of sortedCategories) {
       result[category] = grouped[category];
@@ -80,9 +80,9 @@ export default function DashboardPage() {
         setPageLoading(false);
       });
     } else if (!loadingAuth && !user) {
-       setPageLoading(false);
+      setPageLoading(false);
     }
-    
+
     return () => {
       if (unsubscribePersonas) {
         unsubscribePersonas();
@@ -121,7 +121,7 @@ export default function DashboardPage() {
       </div>
     );
   }
-  
+
   if (!user) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -134,77 +134,79 @@ export default function DashboardPage() {
   const totalFilteredPersonasCount = Object.values(groupedPersonas).reduce((sum, arr) => sum + arr.length, 0);
 
   return (
-    <div className="container mx-auto py-8">
-      <header className="mb-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Users className="h-8 w-8 text-primary" />
-          <h1 className="text-3xl font-bold">My Personas</h1>
-        </div>
-        <Link href="/personas/new" passHref>
-          <Button>
-            <PlusCircle className="mr-2 h-5 w-5" /> Create New Persona
-          </Button>
-        </Link>
-      </header>
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
+      <div className="container mx-auto py-4">
+        <header className="mb-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Users className="h-8 w-8 text-primary" />
+            <h1 className="text-3xl font-bold">My Personas</h1>
+          </div>
+          <Link href="/personas/new" passHref>
+            <Button>
+              <PlusCircle className="mr-2 h-5 w-5" /> Create New Persona
+            </Button>
+          </Link>
+        </header>
 
-      <div className="mb-6">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search personas by name or category..."
-            className="pl-10 w-full"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="mb-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search personas by name or category..."
+              className="pl-10 w-full"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
         </div>
-      </div>
 
-      {totalFilteredPersonasCount > 0 ? (
-        <Accordion type="multiple" defaultValue={Object.keys(groupedPersonas)} className="w-full">
-          {Object.entries(groupedPersonas).map(([category, personaList]) => (
-            <AccordionItem value={category} key={category}>
-              <AccordionTrigger className="text-lg font-medium hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Folder className="h-5 w-5 text-primary" />
-                  {category} 
-                  <Badge variant="secondary" className="ml-2">{personaList.length}</Badge>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                {personaList.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
-                    {personaList.map((persona) => (
-                      <PersonaCard key={persona.id} persona={persona} onDelete={handleDeletePersona} />
-                    ))}
+        {totalFilteredPersonasCount > 0 ? (
+          <Accordion type="multiple" defaultValue={Object.keys(groupedPersonas)} className="w-full">
+            {Object.entries(groupedPersonas).map(([category, personaList]) => (
+              <AccordionItem value={category} key={category}>
+                <AccordionTrigger className="text-lg font-medium hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Folder className="h-5 w-5 text-primary" />
+                    {category}
+                    <Badge variant="secondary" className="ml-2">{personaList.length}</Badge>
                   </div>
-                ) : (
-                  <p className="text-muted-foreground p-4 text-sm">
-                    No personas in this category match your search.
-                  </p>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      ) : (
-        <div className="text-center py-12">
-          <Users className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
-          <h2 className="text-xl font-semibold mb-2">
-            {searchTerm ? "No Personas Found" : "No Personas Yet"}
-          </h2>
-          <p className="text-muted-foreground mb-4">
-            {searchTerm ? `No personas match your search for "${searchTerm}".` : "Get started by creating your first AI persona."}
-          </p>
-          {!searchTerm && (
-            <Link href="/personas/new" passHref>
-              <Button variant="outline">
-                <PlusCircle className="mr-2 h-5 w-5" /> Create Persona
-              </Button>
-            </Link>
-          )}
-        </div>
-      )}
+                </AccordionTrigger>
+                <AccordionContent>
+                  {personaList.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
+                      {personaList.map((persona) => (
+                        <PersonaCard key={persona.id} persona={persona} onDelete={handleDeletePersona} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground p-4 text-sm">
+                      No personas in this category match your search.
+                    </p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        ) : (
+          <div className="text-center py-12">
+            <Users className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
+            <h2 className="text-xl font-semibold mb-2">
+              {searchTerm ? "No Personas Found" : "No Personas Yet"}
+            </h2>
+            <p className="text-muted-foreground mb-4">
+              {searchTerm ? `No personas match your search for "${searchTerm}".` : "Get started by creating your first AI persona."}
+            </p>
+            {!searchTerm && (
+              <Link href="/personas/new" passHref>
+                <Button variant="outline">
+                  <PlusCircle className="mr-2 h-5 w-5" /> Create Persona
+                </Button>
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
