@@ -61,7 +61,7 @@ env:
       - RUNTIME
 
   - variable: NEXT_PUBLIC_APP_URL
-    value: "https://subspacesynth.com"
+    value: "https://studio--personasim-s9i02.us-central1.hosted.app"
     availability:
       - BUILD
       - RUNTIME
